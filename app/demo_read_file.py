@@ -6,6 +6,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+if __package__:
+    from .agent import run_agent
+else:
+    from agent import run_agent
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -440,10 +444,6 @@ def main():
     if not WORKSPACE.is_dir():
         raise RuntimeError("请先创建 tool_sandbox 目录")
 
-    max_exploration_rounds = 5
-    max_tool_calls = 6
-    tool_calls_used = 0
-
     with OpenAI(
         api_key=os.environ["OPENAI_API_KEY"],
         base_url=os.environ["OPENAI_BASE_URL"],
@@ -463,115 +463,24 @@ def main():
                     "或现有内容不足以判断用途，请如实说明。"
                     "如果搜索、目录或读取结果不完整，明确说明限制；"
                     "不要根据文件名猜测内容。"
-                    ),
-
+                ),
             }
         ]
 
-        # 探索阶段：由模型自主选择是否调用工具。
-        for turn in range(max_exploration_rounds):
-            print(
-                f"\n开始探索第 {turn + 1}/"
-                f"{max_exploration_rounds} 轮请求……"
-                f"已执行工具 {tool_calls_used}/{max_tool_calls} 次",
-                flush=True,
+        def request(history, *, tool_choice):
+            return request_response(
+                client,
+                history,
+                tool_choice=tool_choice,
             )
 
-            response = request_response(
-                client, history, tool_choice="auto"
-            )
-
-            history.extend(
-                item.model_dump(exclude_none=True)
-                for item in response.output
-            )
-
-            calls = [
-                item
-                for item in response.output
-                if item.type == "function_call"
-            ]
-
-            if not calls:
-                if not response.output_text:
-                    raise RuntimeError("未收到文本回答")
-
-                print("\n模型回答：")
-                print(response.output_text)
-                return
-
-            for call in calls:
-                # 同一轮可能返回多个调用，逐个检查预算。
-                if tool_calls_used >= max_tool_calls:
-                    result = {
-                        "ok": False,
-                        "error": "工具调用预算已耗尽，此调用未执行。",
-                    }
-                    print(
-                        f"预算拦截：{call.name}，未执行",
-                        flush=True,
-                    )
-                else:
-                    # 失败的工具调用也计入预算。
-                    tool_calls_used += 1
-                    print(
-                        f"工具请求 [{tool_calls_used}/"
-                        f"{max_tool_calls}]："
-                        f"{call.name} {call.arguments}",
-                        flush=True,
-                    )
-                    result = execute_tool(call)
-
-                # 即使被预算拦截，也为每个调用返回对应结果。
-                history.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": call.call_id,
-                        "output": json.dumps(
-                            result, ensure_ascii=False
-                        ),
-                    }
-                )
-
-            if tool_calls_used >= max_tool_calls:
-                break
-
-        # 工具次数或探索轮数耗尽，额外进行一次只总结请求。
-        print(
-            "\n探索预算已耗尽，开始最终总结请求"
-            "（禁止调用工具）……",
-            flush=True,
+        run_agent(
+            history,
+            request_response=request,
+            execute_tool=execute_tool,
+            max_exploration_rounds=5,
+            max_tool_calls=6,
         )
-
-        history.append(
-            {
-                "role": "developer",
-                "content": (
-                    "探索预算已耗尽，不得再调用工具。"
-                    "请根据已有工具结果回答原任务。"
-                    "如果信息不足，明确列出未完成部分及原因，"
-                    "不要猜测未读取的文件内容。"
-                ),
-            }
-        )
-
-        response = request_response(
-            client, history, tool_choice="none"
-        )
-
-        if any(
-            item.type == "function_call"
-            for item in response.output
-        ):
-            raise RuntimeError(
-                "最终总结阶段仍收到工具调用；已停止，不执行"
-            )
-
-        if not response.output_text:
-            raise RuntimeError("最终总结阶段未收到文本回答")
-
-        print("\n模型回答（预算耗尽后总结）：")
-        print(response.output_text)
 
 
 if __name__ == "__main__":
