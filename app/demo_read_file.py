@@ -1,15 +1,16 @@
 import stat
 import json
 import os
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
 if __package__:
     from .agent import run_agent
+    from . import model_client
 else:
     from agent import run_agent
+    import model_client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -395,10 +396,11 @@ def execute_tool(call):
 
 
 def request_response(client, history, tool_choice):
-    started = time.perf_counter()
-    completed = None
-
-    with client.responses.create(
+    return model_client.request_response(
+        client,
+        history,
+        tool_choice=tool_choice,
+        tools=TOOLS,
         model=os.environ["OPENAI_MODEL"],
         instructions=(
             "你是仓库阅读助手，请用中文简短回答。"
@@ -413,30 +415,8 @@ def request_response(client, history, tool_choice):
             "收到预算耗尽提示后，只总结已确认的结果，"
             "明确说明未完成部分，不要假装任务已经完成。"
         ),
-        input=history,
-        tools=TOOLS,
-        tool_choice=tool_choice,
-        include=["reasoning.encrypted_content"],
-        store=False,
-        stream=True,
-    ) as stream:
-        for event in stream:
-            if event.type == "response.completed":
-                completed = event.response
-            elif event.type == "response.failed":
-                raise RuntimeError(f"响应失败：{event.response.error}")
-            elif event.type == "error":
-                raise RuntimeError(f"接口错误：{event.message}")
-
-    print(
-        f"本轮 API 耗时：{time.perf_counter() - started:.1f} 秒",
-        flush=True,
     )
 
-    if completed is None:
-        raise RuntimeError("未收到完整响应")
-
-    return completed
 
 def main():
     load_dotenv(PROJECT_ROOT / ".env")
