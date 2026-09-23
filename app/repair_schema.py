@@ -1,5 +1,19 @@
+import json
+
+
 class RepairPatchError(ValueError):
     """补丁结构不合法。"""
+
+
+def parse_repair_patch(text):
+    """把模型输出解析为补丁对象；失败时抛出 RepairPatchError，不静默兜底。"""
+    if not isinstance(text, str) or not text.strip():
+        raise RepairPatchError("补丁必须是非空 JSON 文本")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RepairPatchError("补丁不是合法 JSON") from exc
+    return validate_repair_patch(data)
 
 
 PATCH_KEYS = ("path", "old_text", "new_text", "rationale")

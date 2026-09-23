@@ -1,6 +1,6 @@
 import pytest
 
-from app.repair_schema import RepairPatchError, validate_repair_patch
+from app.repair_schema import RepairPatchError, parse_repair_patch, validate_repair_patch
 
 
 def test_valid_patch_is_accepted():
@@ -45,3 +45,18 @@ def test_identical_text_is_rejected():
     }
     with pytest.raises(RepairPatchError, match="没有实际改动"):
         validate_repair_patch(data)
+
+
+def test_parse_valid_json_text():
+    raw = (
+        '{"path": "notes.py", "old_text": "a",'
+        ' "new_text": "b", "rationale": "改"}'
+    )
+    parsed = parse_repair_patch(raw)
+    assert parsed["path"] == "notes.py"
+
+
+def test_parse_non_json_is_rejected():
+    import pytest
+    with pytest.raises(RepairPatchError, match="合法 JSON"):
+        parse_repair_patch("不是 JSON")
