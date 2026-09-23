@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.repair_apply import apply_repair_patch
 from app.repair_schema import RepairPatchError
+from app.trace import write_trace
 
 
 def parse_args(argv):
@@ -21,6 +22,11 @@ def parse_args(argv):
         "--apply",
         action="store_true",
         help="真正写入文件；省略时只预演",
+    )
+    parser.add_argument(
+        "--trace-out",
+        required=False,
+        help="可选，将本次预演或写入结果写入运行记录",
     )
     return parser.parse_args(argv)
 
@@ -63,6 +69,14 @@ def main(argv=None):
             allowed_paths=args.allow_write,
             dry_run=not args.apply,
         )
+        if args.trace_out:
+            write_trace(
+                args.trace_out,
+                kind="repair",
+                issue_text=json.dumps(patch, ensure_ascii=False),
+                events=[],
+                output=result,
+            )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok") else 1
 
