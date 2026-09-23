@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from app.agent import run_agent
 from app import model_client
+from app.repair_apply import apply_repair_patch
 from app.repair_prompts import REPAIR_PROPOSE_INSTRUCTIONS, issue_user_message
 from app.repair_schema import RepairPatchError, parse_repair_patch
 from app.triage_tools import TOOLS, execute_tool
@@ -22,6 +23,11 @@ def parse_args(argv):
     parser.add_argument("--workspace", required=True, help="目标仓库的绝对路径")
     parser.add_argument("--issue-file", required=True, help="包含 issue 全文的文件")
     parser.add_argument("--out", required=False, help="可选，将补丁写入该文件")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="对提案做一次预演，确认 old_text 能对上；绝不写入",
+    )
     return parser.parse_args(argv)
 
 
@@ -119,12 +125,28 @@ def emit_patch(patch, out_path=None):
         Path(out_path).write_text(payload + "\n", encoding="utf-8")
 
 
+def verify_patch(workspace, patch):
+    result = apply_repair_patch(
+        workspace,
+        patch,
+        allowed_paths=[patch["path"]],
+        dry_run=True,
+    )
+    if not result.get("ok"):
+        raise ValueError(result.get("error") or "补丁预演失败")
+    if result.get("applied"):
+        raise RuntimeError("预演阶段不得写入文件")
+    return result
+
+
 def main(argv=None, *, runner_factory=default_runner_factory):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
         workspace = require_workspace(args.workspace)
         issue_text = load_issue_text(args.issue_file)
         patch = runner_factory(workspace)(issue_text)
+        if args.verify:
+            verify_patch(workspace, patch)
         emit_patch(patch, args.out)
         return 0
 

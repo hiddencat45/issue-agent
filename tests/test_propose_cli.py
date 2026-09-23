@@ -130,3 +130,63 @@ def test_collect_patch_requires_read_file():
     )
     assert calls == ["read_file"]
     assert patch == VALID_PATCH
+
+
+def write_notes(tmp_path):
+    path = tmp_path / "notes.py"
+    path.write_text("def format_note(text):\n    return text.strip()\n", encoding="utf-8")
+    return path
+
+
+def test_verify_succeeds_without_writing(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    before = notes.read_text(encoding="utf-8")
+
+    def factory(workspace):
+        def runner(issue_text):
+            return VALID_PATCH
+        return runner
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--verify",
+        ],
+        runner_factory=factory,
+    )
+    printed = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert printed == VALID_PATCH
+    assert notes.read_text(encoding="utf-8") == before
+
+
+def test_verify_fails_when_old_text_missing(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    notes.write_text("def format_note(text):\n    return text\n", encoding="utf-8")
+    before = notes.read_text(encoding="utf-8")
+
+    def factory(workspace):
+        def runner(issue_text):
+            return VALID_PATCH
+        return runner
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--verify",
+        ],
+        runner_factory=factory,
+    )
+    captured = capsys.readouterr()
+    assert code != 0
+    assert captured.out == ""
+    assert "恰好出现一次" in captured.err
+    assert notes.read_text(encoding="utf-8") == before
