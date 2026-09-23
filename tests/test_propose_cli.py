@@ -190,3 +190,33 @@ def test_verify_fails_when_old_text_missing(tmp_path, capsys):
     assert captured.out == ""
     assert "恰好出现一次" in captured.err
     assert notes.read_text(encoding="utf-8") == before
+
+
+def test_trace_out_writes_record(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    trace_path = tmp_path / "trace.json"
+
+    def factory(workspace):
+        def runner(issue_text):
+            return VALID_PATCH
+        return runner
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--trace-out",
+            str(trace_path),
+        ],
+        runner_factory=factory,
+    )
+    printed = json.loads(capsys.readouterr().out)
+    record = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert code == 0
+    assert printed == VALID_PATCH
+    assert record["kind"] == "propose"
+    assert record["output"] == VALID_PATCH
+    assert "format_note" in record["issue_text"]
+    assert record["events"] == []

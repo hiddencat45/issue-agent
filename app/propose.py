@@ -11,6 +11,7 @@ from app import model_client
 from app.repair_apply import apply_repair_patch
 from app.repair_prompts import REPAIR_PROPOSE_INSTRUCTIONS, issue_user_message
 from app.repair_schema import RepairPatchError, parse_repair_patch
+from app.trace import TraceRecorder, write_trace
 from app.triage_tools import TOOLS, execute_tool
 from app.tools.repository import RepositoryTools
 
@@ -27,6 +28,11 @@ def parse_args(argv):
         "--verify",
         action="store_true",
         help="对提案做一次预演，确认 old_text 能对上；绝不写入",
+    )
+    parser.add_argument(
+        "--trace-out",
+        required=False,
+        help="可选，将本次工具调用与补丁写入运行记录",
     )
     return parser.parse_args(argv)
 
@@ -95,12 +101,14 @@ def collect_patch(
     return parse_repair_patch(answer)
 
 
-def default_runner_factory(workspace):
+def default_runner_factory(workspace, recorder=None):
     load_dotenv(PROJECT_ROOT / ".env")
     from openai import OpenAI
 
     repository = RepositoryTools(workspace)
     execute = make_execute_tool(repository)
+    if recorder is not None:
+        execute = recorder.wrap_execute(execute)
 
     def runner(issue_text):
         with OpenAI(
@@ -139,14 +147,26 @@ def verify_patch(workspace, patch):
     return result
 
 
-def main(argv=None, *, runner_factory=default_runner_factory):
+def main(argv=None, *, runner_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
         workspace = require_workspace(args.workspace)
         issue_text = load_issue_text(args.issue_file)
-        patch = runner_factory(workspace)(issue_text)
+        recorder = TraceRecorder()
+        factory = runner_factory or (
+            lambda item: default_runner_factory(item, recorder=recorder)
+        )
+        patch = factory(workspace)(issue_text)
         if args.verify:
             verify_patch(workspace, patch)
+        if args.trace_out:
+            write_trace(
+                args.trace_out,
+                kind="propose",
+                issue_text=issue_text,
+                events=recorder.events,
+                output=patch,
+            )
         emit_patch(patch, args.out)
         return 0
 
