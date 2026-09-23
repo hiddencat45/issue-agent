@@ -11,6 +11,7 @@ from app import model_client
 from app.triage_prompts import TRIAGE_INSTRUCTIONS, issue_user_message
 from app.triage_schema import TriageReportError, parse_triage_report
 from app.triage_tools import TOOLS, execute_tool
+from app.trace import TraceRecorder, write_trace
 from app.tools.repository import RepositoryTools
 
 
@@ -22,6 +23,11 @@ def parse_args(argv):
     parser.add_argument("--workspace", required=True, help="目标仓库的绝对路径")
     parser.add_argument("--issue-file", required=True, help="包含 issue 全文的文件")
     parser.add_argument("--out", required=False, help="可选，将报告写入该文件")
+    parser.add_argument(
+        "--trace-out",
+        required=False,
+        help="可选，将本次工具调用与报告写入运行记录",
+    )
     return parser.parse_args(argv)
 
 
@@ -93,12 +99,14 @@ def collect_report(
     return parse_triage_report(answer)
 
 
-def default_runner_factory(workspace):
+def default_runner_factory(workspace, recorder=None):
     load_dotenv(PROJECT_ROOT / ".env")
     from openai import OpenAI
 
     repository = RepositoryTools(workspace)
     execute = make_execute_tool(repository)
+    if recorder is not None:
+        execute = recorder.wrap_execute(execute)
 
     def runner(issue_text):
         with OpenAI(
@@ -123,12 +131,24 @@ def emit_report(report, out_path=None):
         Path(out_path).write_text(payload + "\n", encoding="utf-8")
 
 
-def main(argv=None, *, runner_factory=default_runner_factory):
+def main(argv=None, *, runner_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
         workspace = require_workspace(args.workspace)
         issue_text = load_issue_text(args.issue_file)
-        report = runner_factory(workspace)(issue_text)
+        recorder = TraceRecorder()
+        factory = runner_factory or (
+            lambda item: default_runner_factory(item, recorder=recorder)
+        )
+        report = factory(workspace)(issue_text)
+        if args.trace_out:
+            write_trace(
+                args.trace_out,
+                kind="triage",
+                issue_text=issue_text,
+                events=recorder.events,
+                output=report,
+            )
         emit_report(report, args.out)
         return 0
 

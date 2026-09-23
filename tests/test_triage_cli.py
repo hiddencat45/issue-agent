@@ -141,3 +141,33 @@ def test_collect_report_requires_read_file():
 
     assert calls == ["read_file"]
     assert report["issue_summary"] == VALID_REPORT["issue_summary"]
+
+
+def test_trace_out_writes_record(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    trace_path = tmp_path / "trace.json"
+
+    def factory(workspace):
+        def runner(issue_text):
+            return VALID_REPORT
+        return runner
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--trace-out",
+            str(trace_path),
+        ],
+        runner_factory=factory,
+    )
+    printed = json.loads(capsys.readouterr().out)
+    record = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert code == 0
+    assert printed == VALID_REPORT
+    assert record["kind"] == "triage"
+    assert record["output"] == VALID_REPORT
+    assert "paginate" in record["issue_text"]
+    assert record["events"] == []
