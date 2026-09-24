@@ -95,3 +95,55 @@ def test_eval_cli_scores_existing_reports(tmp_path, capsys):
     assert code == 0
     assert scored["ok"] is True
     assert load_cases(cases_dir)[0]["id"] == "page_zero"
+
+
+def test_run_records_error_and_continues(tmp_path, capsys):
+    workspace = write_workspace(tmp_path)
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    (cases_dir / "a.txt").write_text("a\n", encoding="utf-8")
+    (cases_dir / "b.txt").write_text("b\n", encoding="utf-8")
+    (cases_dir / "cases.json").write_text(json.dumps({
+        "cases": [
+            {"id": "a", "issue_file": "a.txt", "expected_files": ["text_utils/pagination.py"]},
+            {"id": "b", "issue_file": "b.txt", "expected_files": ["text_utils/pagination.py"]},
+        ]
+    }), encoding="utf-8")
+    out_dir = tmp_path / "out"
+    good = {
+        "issue_summary": "page=0 应报错",
+        "evidence": [{
+            "path": "text_utils/pagination.py",
+            "line": 2,
+            "quote": "    if page < 1:",
+        }],
+        "candidate_files": ["text_utils/pagination.py"],
+        "uncertainties": [],
+    }
+
+    def fake_run(workspace_arg, cases, out_dir_arg):
+        from pathlib import Path as P
+        (P(out_dir_arg) / "a.json").write_text(json.dumps(good), encoding="utf-8")
+        (P(out_dir_arg) / "b.error.json").write_text(
+            json.dumps({"ok": False, "error": "stream_read_error"}),
+            encoding="utf-8",
+        )
+        return {"a": good}
+
+    code = main(
+        [
+            "--workspace",
+            str(workspace.resolve()),
+            "--cases-dir",
+            str(cases_dir.resolve()),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--run",
+        ],
+        run_cases_fn=fake_run,
+    )
+    scored = json.loads(capsys.readouterr().out)
+    assert code != 0
+    by_id = {item["id"]: item for item in scored["results"]}
+    assert by_id["a"]["ok"] is True
+    assert by_id["b"]["ok"] is False

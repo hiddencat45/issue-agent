@@ -52,7 +52,14 @@ def run_cases(workspace, cases, out_dir):
     for case in cases:
         recorder = TraceRecorder()
         runner = default_runner_factory(workspace, recorder=recorder)
-        report = runner(case["issue_text"])
+        try:
+            report = runner(case["issue_text"])
+        except Exception as exc:
+            _write_json(
+                out_dir / f"{case['id']}.error.json",
+                {"ok": False, "error": str(exc)},
+            )
+            continue
         reports[case["id"]] = report
         _write_json(out_dir / f"{case['id']}.json", report)
         write_trace(
