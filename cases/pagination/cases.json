@@ -3,22 +3,37 @@
     {
       "id": "page_zero",
       "issue_file": "page_zero.txt",
-      "expected_files": ["text_utils/pagination.py"]
+      "expected_files": [
+        "text_utils/pagination.py"
+      ]
     },
     {
       "id": "empty_list",
       "issue_file": "empty_list.txt",
-      "expected_files": ["text_utils/pagination.py"]
+      "expected_files": [
+        "text_utils/pagination.py"
+      ]
     },
     {
       "id": "page_size_zero",
       "issue_file": "page_size_zero.txt",
-      "expected_files": ["text_utils/pagination.py"]
+      "expected_files": [
+        "text_utils/pagination.py"
+      ]
     },
     {
       "id": "out_of_range",
       "issue_file": "out_of_range.txt",
-      "expected_files": ["text_utils/pagination.py"]
+      "expected_files": [
+        "text_utils/pagination.py"
+      ]
+    },
+    {
+      "id": "readme_out_of_range",
+      "issue_file": "readme_out_of_range.txt",
+      "expected_files": [
+        "README.md"
+      ]
     }
   ]
 }
