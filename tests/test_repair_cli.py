@@ -106,3 +106,40 @@ def test_trace_out_records_dry_run(tmp_path, capsys):
     assert record["kind"] == "repair"
     assert record["output"]["applied"] is False
     assert record["events"] == []
+
+
+def test_repair_pytest_requires_apply(tmp_path, capsys):
+    patch = write_workspace(tmp_path)
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--patch-file",
+        str(patch),
+        "--allow-write",
+        "notes.py",
+        "--pytest",
+    ])
+    err = capsys.readouterr().err
+    assert code != 0
+    assert "--apply" in err
+    assert "strip" in (tmp_path / "notes.py").read_text(encoding="utf-8")
+
+
+def test_repair_pytest_after_apply(tmp_path, capsys):
+    patch = write_workspace(tmp_path)
+    (tmp_path / "test_sample.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--patch-file",
+        str(patch),
+        "--allow-write",
+        "notes.py",
+        "--apply",
+        "--pytest",
+    ])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert result["applied"] is True
+    assert result["pytest"]["passed"] is True
+    assert "strip" not in (tmp_path / "notes.py").read_text(encoding="utf-8")

@@ -7,6 +7,7 @@ from app import propose
 from app import triage
 from app.repair_apply import apply_repair_patch
 from app.repair_schema import RepairPatchError
+from app.run_pytest import run_pytest
 from app.trace import TraceRecorder, write_trace
 from app.trace_schema import TraceError
 from app.triage_schema import TriageReportError
@@ -29,6 +30,11 @@ def parse_args(argv):
         "--apply",
         action="store_true",
         help="预演通过后真正写入；省略时不改目标仓库",
+    )
+    parser.add_argument(
+        "--pytest",
+        action="store_true",
+        help="写入成功后在目标仓库运行 python -m pytest -q；必须同时提供 --apply",
     )
     return parser.parse_args(argv)
 
@@ -61,6 +67,7 @@ def run_workflow(
     propose_recorder,
     allow_write,
     apply,
+    run_tests=False,
 ):
     report = make_triage(workspace)(issue_text)
     _write_json(out_dir / "report.json", report)
@@ -114,13 +121,24 @@ def run_workflow(
             raise ValueError(apply_result.get("error") or "写入未成功")
         applied = True
 
+    tests_passed = None
+    if run_tests:
+        if not applied:
+            raise ValueError("使用 --pytest 时必须同时提供 --apply")
+        pytest_result = run_pytest(workspace)
+        _write_json(out_dir / "pytest.json", pytest_result)
+        tests_passed = bool(pytest_result.get("passed"))
+
     summary = {
-        "ok": True,
+        "ok": True if tests_passed is None else tests_passed,
         "report": "report.json",
         "patch": "patch.json",
         "verify": "verify.json",
         "applied": applied,
     }
+    if tests_passed is not None:
+        summary["pytest"] = "pytest.json"
+        summary["tests_passed"] = tests_passed
     _write_json(out_dir / "summary.json", summary)
     return summary
 
@@ -128,6 +146,8 @@ def run_workflow(
 def main(argv=None, *, triage_factory=None, propose_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
+        if args.pytest and not args.apply:
+            raise ValueError("使用 --pytest 时必须同时提供 --apply")
         workspace = triage.require_workspace(args.workspace)
         issue_text = triage.load_issue_text(args.issue_file)
         out_dir = require_out_dir(args.out_dir)
@@ -159,9 +179,10 @@ def main(argv=None, *, triage_factory=None, propose_factory=None):
             propose_recorder=propose_recorder,
             allow_write=args.allow_write,
             apply=args.apply,
+            run_tests=args.pytest,
         )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
-        return 0
+        return 0 if summary.get("ok") else 1
 
     except (
         ValueError,

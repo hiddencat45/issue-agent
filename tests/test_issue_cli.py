@@ -122,3 +122,128 @@ def test_apply_writes_when_allowed(tmp_path, capsys):
     assert summary["applied"] is True
     assert "strip" not in notes.read_text(encoding="utf-8")
     assert json.loads((out_dir / "apply.json").read_text(encoding="utf-8"))["applied"] is True
+
+
+def write_workspace_test(tmp_path, body="def test_ok():\n    assert True\n"):
+    path = tmp_path / "test_sample.py"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_pytest_requires_apply(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    write_notes(tmp_path)
+    write_workspace_test(tmp_path, "def test_bad():\n    assert False\n")
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--pytest",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    err = capsys.readouterr().err
+    assert code != 0
+    assert "--apply" in err
+    assert not (out_dir / "pytest.json").exists()
+    assert not (out_dir / "report.json").exists()
+
+
+def test_apply_without_pytest_skips_tests(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    write_notes(tmp_path)
+    write_workspace_test(tmp_path)
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    summary = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert summary["applied"] is True
+    assert "tests_passed" not in summary
+    assert not (out_dir / "pytest.json").exists()
+
+
+def test_pytest_after_apply_records_pass(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    write_notes(tmp_path)
+    write_workspace_test(tmp_path)
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--pytest",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    summary = json.loads(capsys.readouterr().out)
+    pytest_result = json.loads((out_dir / "pytest.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert summary["applied"] is True
+    assert summary["tests_passed"] is True
+    assert pytest_result["passed"] is True
+    assert "strip" not in (tmp_path / "notes.py").read_text(encoding="utf-8")
+
+
+def test_pytest_failure_keeps_written_files(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    write_workspace_test(tmp_path, "def test_bad():\n    assert False\n")
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--pytest",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    assert code != 0
+    assert summary["applied"] is True
+    assert summary["tests_passed"] is False
+    assert "strip" not in notes.read_text(encoding="utf-8")

@@ -32,7 +32,13 @@ python -m app.issue --workspace "D:\path\to\repo" --issue-file issue.txt --out-d
 python -m app.issue --workspace "D:\path\to\repo" --issue-file issue.txt --out-dir "D:\path\to\out" --allow-write notes.py --apply
 ```
 
-没有 `--apply` 时，目标仓库不会被修改。
+写入成功后，可再加 `--pytest`，在目标仓库根目录运行 `python -m pytest -q`。这不是任意 Shell：不能改命令、不能加参数。测试失败不会撤销已经写入的文件。
+
+```powershell
+python -m app.issue --workspace "D:\path\to\repo" --issue-file issue.txt --out-dir "D:\path\to\out" --allow-write notes.py --apply --pytest
+```
+
+没有 `--apply` 时，目标仓库不会被修改。没有 `--pytest` 时，不会跑测试。
 
 一份补丁可以改同一文件的多处，也可以改多个已有文件。`--apply` 时每个被改文件都要出现在 `--allow-write` 里，缺一个则全部不写。仍然不能新建或删除文件。旧的单处四字段补丁仍然可用。
 
@@ -43,6 +49,7 @@ python -m app.triage --workspace "D:\path\to\repo" --issue-file issue.txt --out 
 python -m app.propose --workspace "D:\path\to\repo" --issue-file issue.txt --out patch.json --verify --trace-out propose-trace.json
 python -m app.repair --workspace "D:\path\to\repo" --patch-file patch.json --allow-write notes.py
 python -m app.repair --workspace "D:\path\to\repo" --patch-file patch.json --allow-write notes.py --apply
+python -m app.repair --workspace "D:\path\to\repo" --patch-file patch.json --allow-write notes.py --apply --pytest
 python -m app.trace_show --trace-file propose-trace.json
 python -m app.trace_replay --workspace "D:\path\to\repo" --trace-file propose-trace.json
 ```
