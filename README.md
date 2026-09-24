@@ -43,6 +43,17 @@ python -m app.trace_show --trace-file propose-trace.json
 python -m app.trace_replay --workspace "D:\path\to\repo" --trace-file propose-trace.json
 ```
 
+
+## 分诊评测
+
+对固定案例打分：是否提到该提到的文件，证据 quote 是否为原文。
+
+```powershell
+python -m app.eval_cases --workspace "D:\path\to\target-repo" --cases-dir "D:\path\to\issue-agent\cases\pagination" --out-dir "D:\path\to\out" --run
+```
+
+省略 `--run` 时，只评分 `--out-dir` 里已有的 `{id}.json` 报告，不调模型。
+
 ## 测试
 
 ```powershell
