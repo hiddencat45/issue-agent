@@ -6,8 +6,11 @@ def test_instructions_require_patch_fields_and_json_only():
     assert "old_text" in text
     assert "new_text" in text
     assert "rationale" in text
+    assert "edits" in text
     assert "只是一个 JSON 对象" in text
     assert "不能写文件" in text
+    assert "每一个文件" in text
+    assert "一次只改一个文件" not in text
 
 
 def test_instructions_name_readonly_tools():

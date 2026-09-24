@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.repair_schema import RepairPatchError, validate_repair_patch
+from app.repair_schema import RepairPatchError, patch_paths, validate_repair_patch
 from app.tools.repository import RepositoryTools
 
 
@@ -34,7 +34,7 @@ def _safe_existing_file(root, relative_path):
 
 
 def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True):
-    """在允许列表内替换已有文件中恰好出现一次的原文。"""
+    """在允许列表内替换已有文件中恰好出现一次的原文。多处修改先全部算完再写。"""
     try:
         patch = validate_repair_patch(patch)
         root = Path(root).resolve()
@@ -42,35 +42,64 @@ def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True):
             raise RepairPatchError("工作区不存在或不是目录")
 
         allowed = {item.replace("\\", "/") for item in allowed_paths}
-        if patch["path"] not in allowed:
-            raise RepairPatchError("该路径未被 --allow-write 授权")
-
-        target = _safe_existing_file(root, patch["path"])
-        original = target.read_text(encoding="utf-8")
-        count = original.count(patch["old_text"])
-        if count != 1:
+        paths = patch_paths(patch)
+        missing = [path for path in paths if path not in allowed]
+        if missing:
             raise RepairPatchError(
-                "old_text 必须在文件中恰好出现一次，"
-                f"实际出现 {count} 次"
+                "该路径未被 --allow-write 授权：" + ", ".join(missing)
             )
 
-        updated = original.replace(patch["old_text"], patch["new_text"], 1)
-        encoded = updated.encode("utf-8")
-        if len(encoded) > RepositoryTools.MAX_FILE_BYTES:
-            raise RepairPatchError("修改后的文件过大")
+        originals = {}
+        buffers = {}
+        targets = {}
+        for path in paths:
+            target = _safe_existing_file(root, path)
+            text = target.read_text(encoding="utf-8")
+            originals[path] = text
+            buffers[path] = text
+            targets[path] = target
 
+        for edit in patch["edits"]:
+            path = edit["path"]
+            count = buffers[path].count(edit["old_text"])
+            if count != 1:
+                raise RepairPatchError(
+                    f"{path} 中 old_text 必须恰好出现一次，实际出现 {count} 次"
+                )
+            buffers[path] = buffers[path].replace(
+                edit["old_text"],
+                edit["new_text"],
+                1,
+            )
+            encoded = buffers[path].encode("utf-8")
+            if len(encoded) > RepositoryTools.MAX_FILE_BYTES:
+                raise RepairPatchError(f"{path} 修改后的文件过大")
+
+        files = {
+            path: {
+                "bytes_before": len(originals[path].encode("utf-8")),
+                "bytes_after": len(buffers[path].encode("utf-8")),
+            }
+            for path in paths
+        }
         result = {
             "ok": True,
-            "path": patch["path"],
             "dry_run": dry_run,
             "applied": not dry_run,
             "rationale": patch["rationale"],
-            "bytes_before": len(original.encode("utf-8")),
-            "bytes_after": len(encoded),
+            "paths": paths,
+            "edits": len(patch["edits"]),
+            "files": files,
         }
+        if len(paths) == 1:
+            path = paths[0]
+            result["path"] = path
+            result["bytes_before"] = files[path]["bytes_before"]
+            result["bytes_after"] = files[path]["bytes_after"]
 
         if not dry_run:
-            target.write_text(updated, encoding="utf-8")
+            for path in paths:
+                targets[path].write_text(buffers[path], encoding="utf-8")
 
         return result
 

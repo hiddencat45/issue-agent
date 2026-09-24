@@ -11,7 +11,7 @@ from app import model_client
 from app.api_retry import call_with_retry
 from app.repair_apply import apply_repair_patch
 from app.repair_prompts import REPAIR_PROPOSE_INSTRUCTIONS, issue_user_message
-from app.repair_schema import RepairPatchError, parse_repair_patch
+from app.repair_schema import RepairPatchError, parse_repair_patch, patch_paths
 from app.trace import TraceRecorder, write_trace
 from app.triage_tools import TOOLS, execute_tool
 from app.tools.repository import RepositoryTools
@@ -152,7 +152,7 @@ def verify_patch(workspace, patch):
     result = apply_repair_patch(
         workspace,
         patch,
-        allowed_paths=[patch["path"]],
+        allowed_paths=patch_paths(patch),
         dry_run=True,
     )
     if not result.get("ok"):

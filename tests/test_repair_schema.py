@@ -60,3 +60,46 @@ def test_parse_non_json_is_rejected():
     import pytest
     with pytest.raises(RepairPatchError, match="合法 JSON"):
         parse_repair_patch("不是 JSON")
+
+
+def test_single_patch_exposes_edits_and_is_idempotent():
+    patch = {
+        "path": "notes.py",
+        "old_text": "return text.strip()",
+        "new_text": "return text.rstrip()",
+        "rationale": "只去掉右侧空格",
+    }
+    parsed = validate_repair_patch(patch)
+    assert parsed["edits"] == [{
+        "path": "notes.py",
+        "old_text": "return text.strip()",
+        "new_text": "return text.rstrip()",
+    }]
+    assert validate_repair_patch(parsed) == parsed
+
+
+def test_multi_edit_patch_is_accepted():
+    patch = {
+        "rationale": "两处都改",
+        "edits": [
+            {
+                "path": "notes.py",
+                "old_text": "return text.strip()",
+                "new_text": "return text",
+            },
+            {
+                "path": "README.md",
+                "old_text": "会去掉空格",
+                "new_text": "会保留空格",
+            },
+        ],
+    }
+    parsed = validate_repair_patch(patch)
+    assert "path" not in parsed
+    assert len(parsed["edits"]) == 2
+
+
+def test_empty_edits_are_rejected():
+    patch = {"rationale": "空", "edits": []}
+    with pytest.raises(RepairPatchError, match="非空数组"):
+        validate_repair_patch(patch)

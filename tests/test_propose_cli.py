@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from app.propose import collect_patch, main
-from app.repair_schema import RepairPatchError
+from app.repair_schema import RepairPatchError, validate_repair_patch
 
 
 VALID_PATCH = {
@@ -129,7 +129,7 @@ def test_collect_patch_requires_read_file():
         execute_tool_fn=execute,
     )
     assert calls == ["read_file"]
-    assert patch == VALID_PATCH
+    assert patch == validate_repair_patch(VALID_PATCH)
 
 
 def write_notes(tmp_path):

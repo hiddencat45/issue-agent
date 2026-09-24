@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.repair_apply import apply_repair_patch
-from app.repair_schema import RepairPatchError, parse_repair_patch
+from app.repair_schema import RepairPatchError, parse_repair_patch, patch_paths
 from app.tools.repository import RepositoryTools
 from app.trace import read_trace
 from app.trace_schema import TraceError
@@ -61,31 +61,40 @@ def _replay_repair(workspace, trace):
     patch = parse_repair_patch(trace["issue_text"])
     recorded = trace["output"]
     if recorded.get("applied"):
-        target = workspace / patch["path"]
-        if not target.is_file():
-            actual = {"ok": False, "error": "目标文件不存在"}
-        else:
-            text = target.read_text(encoding="utf-8")
-            if patch["new_text"] in text:
-                actual = {
-                    "ok": True,
-                    "path": patch["path"],
-                    "applied": True,
-                }
-            else:
+        mismatches = []
+        for index, edit in enumerate(patch["edits"]):
+            target = workspace / edit["path"]
+            if not target.is_file():
                 actual = {
                     "ok": False,
-                    "error": "文件中找不到 new_text，写入结果已变化",
+                    "error": "目标文件不存在",
+                    "path": edit["path"],
                 }
-        expected = {"ok": True, "applied": True, "path": recorded.get("path")}
-        mismatches = []
-        if not actual.get("ok"):
-            mismatches.append({
-                "index": 0,
-                "name": "repair_apply",
-                "expected": expected,
-                "actual": actual,
-            })
+            else:
+                text = target.read_text(encoding="utf-8")
+                if edit["new_text"] in text:
+                    actual = {
+                        "ok": True,
+                        "path": edit["path"],
+                        "applied": True,
+                    }
+                else:
+                    actual = {
+                        "ok": False,
+                        "error": "文件中找不到 new_text，写入结果已变化",
+                        "path": edit["path"],
+                    }
+            if not actual.get("ok"):
+                mismatches.append({
+                    "index": index,
+                    "name": "repair_apply",
+                    "expected": {
+                        "ok": True,
+                        "applied": True,
+                        "path": edit["path"],
+                    },
+                    "actual": actual,
+                })
         return {
             "ok": not mismatches,
             "kind": "repair",
@@ -95,7 +104,7 @@ def _replay_repair(workspace, trace):
     actual = apply_repair_patch(
         workspace,
         patch,
-        allowed_paths=[patch["path"]],
+        allowed_paths=patch_paths(patch),
         dry_run=True,
     )
     if actual.get("applied"):
@@ -113,6 +122,7 @@ def _replay_repair(workspace, trace):
         "kind": "repair",
         "mismatches": mismatches,
     }
+
 
 
 def main(argv=None):

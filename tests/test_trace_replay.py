@@ -133,3 +133,53 @@ def test_replay_applied_repair_checks_new_text(tmp_path):
         str(tmp_path / "trace.json"),
     ])
     assert code != 0
+
+
+def test_replay_applied_multi_file_checks_each_new_text(tmp_path):
+    notes = write_notes(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text("# notes\n会去掉空格\n", encoding="utf-8")
+    patch = {
+        "rationale": "代码和说明一起改",
+        "edits": [
+            {
+                "path": "notes.py",
+                "old_text": "    return text.strip()\n",
+                "new_text": "    return text\n",
+            },
+            {
+                "path": "README.md",
+                "old_text": "会去掉空格",
+                "new_text": "会保留空格",
+            },
+        ],
+    }
+    recorded = apply_repair_patch(
+        tmp_path,
+        patch,
+        allowed_paths=["notes.py", "README.md"],
+        dry_run=False,
+    )
+    assert recorded["applied"] is True
+    write_trace(
+        tmp_path / "trace.json",
+        kind="repair",
+        issue_text=json.dumps(patch, ensure_ascii=False),
+        events=[],
+        output=recorded,
+    )
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--trace-file",
+        str(tmp_path / "trace.json"),
+    ])
+    assert code == 0
+    readme.write_text("# notes\n会去掉空格\n", encoding="utf-8")
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--trace-file",
+        str(tmp_path / "trace.json"),
+    ])
+    assert code != 0

@@ -34,6 +34,8 @@ python -m app.issue --workspace "D:\path\to\repo" --issue-file issue.txt --out-d
 
 没有 `--apply` 时，目标仓库不会被修改。
 
+一份补丁可以改同一文件的多处，也可以改多个已有文件。`--apply` 时每个被改文件都要出现在 `--allow-write` 里，缺一个则全部不写。仍然不能新建或删除文件。旧的单处四字段补丁仍然可用。
+
 ## 拆开用
 
 ```powershell
