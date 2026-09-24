@@ -19,6 +19,12 @@ def parse_args(argv):
         action="store_true",
         help="先对每个 case 调用分诊（会使用模型）；省略则只评分已有报告",
     )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help="只跑指定案例 id，可重复",
+    )
     return parser.parse_args(argv)
 
 
@@ -81,6 +87,13 @@ def main(argv=None, *, run_cases_fn=None):
             raise ValueError("--cases-dir 必须是绝对路径")
         out_dir = require_out_dir(args.out_dir)
         cases = load_cases(cases_dir)
+        if args.case_id:
+            wanted = set(args.case_id)
+            known = {case["id"] for case in cases}
+            missing = wanted - known
+            if missing:
+                raise EvalError("未知 case-id：" + ", ".join(sorted(missing)))
+            cases = [case for case in cases if case["id"] in wanted]
         if args.run:
             runner = run_cases_fn or run_cases
             reports = runner(workspace, cases, out_dir)

@@ -147,3 +147,30 @@ def test_run_records_error_and_continues(tmp_path, capsys):
     by_id = {item["id"]: item for item in scored["results"]}
     assert by_id["a"]["ok"] is True
     assert by_id["b"]["ok"] is False
+
+
+def test_unknown_case_id_exits_nonzero(tmp_path, capsys):
+    workspace = write_workspace(tmp_path)
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    (cases_dir / "page_zero.txt").write_text("page=0\n", encoding="utf-8")
+    (cases_dir / "cases.json").write_text(json.dumps({
+        "cases": [{
+            "id": "page_zero",
+            "issue_file": "page_zero.txt",
+            "expected_files": ["text_utils/pagination.py"],
+        }]
+    }), encoding="utf-8")
+    code = main([
+        "--workspace",
+        str(workspace.resolve()),
+        "--cases-dir",
+        str(cases_dir.resolve()),
+        "--out-dir",
+        str((tmp_path / "out").resolve()),
+        "--case-id",
+        "no_such",
+    ])
+    err = capsys.readouterr().err
+    assert code != 0
+    assert "未知 case-id" in err
