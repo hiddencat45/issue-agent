@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from app.agent import run_agent
 from app import model_client
+from app.api_retry import call_with_retry
 from app.triage_prompts import TRIAGE_INSTRUCTIONS, issue_user_message
 from app.triage_schema import TriageReportError, parse_triage_report
 from app.triage_tools import TOOLS, execute_tool
@@ -57,13 +58,27 @@ def load_issue_text(raw_path):
 
 def make_request_response(client):
     def request(history, *, tool_choice):
-        return model_client.request_response(
-            client,
-            history,
-            tool_choice=tool_choice,
-            tools=TOOLS,
-            model=os.environ["OPENAI_MODEL"],
-            instructions=TRIAGE_INSTRUCTIONS,
+        def once():
+            return model_client.request_response(
+                client,
+                history,
+                tool_choice=tool_choice,
+                tools=TOOLS,
+                model=os.environ["OPENAI_MODEL"],
+                instructions=TRIAGE_INSTRUCTIONS,
+            )
+
+        def on_retry(tried, remaining, exc):
+            print(
+                f"模型请求失败，正在重试（{tried}/{tried + remaining}）：{exc}",
+                flush=True,
+            )
+
+        return call_with_retry(
+            once,
+            attempts=2,
+            delay_seconds=1.0,
+            on_retry=on_retry,
         )
 
     return request

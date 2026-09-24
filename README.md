@@ -12,6 +12,8 @@ python -m pip install -r requirements.txt
 
 模型调用需要环境变量 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`。可参考 `.env.example`，不要把密钥提交进仓库或贴到聊天里。
 
+模型请求若遇到连接中断或 stream_read_error，会自动再试 1 次；仍失败则报错，不静默跳过。
+
 `--workspace` 和 `--out-dir` 必须是绝对路径。
 
 ## 推荐：一条工作流
