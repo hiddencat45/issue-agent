@@ -30,3 +30,10 @@ def test_issue_user_message_includes_raw_issue():
     assert issue in message
     assert "四格 JSON" in message
     assert message.strip() != issue
+
+
+def test_instructions_require_one_quote_per_line():
+    text = TRIAGE_INSTRUCTIONS
+    assert "一条证据只对应文件中的一行" in text
+    assert "不得包含换行" in text
+    assert "拆成多条 evidence" in text
