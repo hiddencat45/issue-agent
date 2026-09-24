@@ -5,3 +5,9 @@ __pycache__/
 .pytest_cache/
 logs/
 .DS_Store
+
+# 阶段一遗留，不是产品入口
+app/demo_model.py
+app/prompts.py
+app/schemas.py
+tool_sandbox/
