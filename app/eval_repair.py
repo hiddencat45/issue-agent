@@ -1,0 +1,312 @@
+import argparse
+import json
+import shutil
+import sys
+from pathlib import Path
+
+from app.eval_triage import EvalError
+from app.propose import default_runner_factory
+from app.repair_apply import apply_repair_patch
+from app.repair_schema import RepairPatchError, patch_paths, validate_repair_patch
+from app.run_pytest import run_pytest
+from app.trace import TraceRecorder, write_trace
+from app.triage import require_workspace
+
+
+def load_repair_cases(cases_dir):
+    root = Path(cases_dir)
+    manifest = root / "cases.json"
+    if not manifest.is_file():
+        raise EvalError("缺少 cases.json")
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise EvalError("cases.json 不是合法 JSON") from exc
+    if not isinstance(data, dict) or "cases" not in data or not isinstance(data["cases"], list):
+        raise EvalError("cases.json 必须包含 cases 数组")
+    cases = []
+    for item in data["cases"]:
+        if not isinstance(item, dict):
+            raise EvalError("case 必须是对象")
+        if set(item) != {"id", "issue_file", "expected_paths"}:
+            raise EvalError("case 字段必须恰好为 id、issue_file、expected_paths")
+        issue_path = root / item["issue_file"]
+        if not issue_path.is_file():
+            raise EvalError(f"issue 文件不存在：{item['issue_file']}")
+        expected = item["expected_paths"]
+        if not isinstance(expected, list) or not expected or not all(
+            isinstance(x, str) and x for x in expected
+        ):
+            raise EvalError("expected_paths 必须是非空字符串数组")
+        cases.append({
+            "id": item["id"],
+            "issue_file": item["issue_file"],
+            "issue_text": issue_path.read_text(encoding="utf-8"),
+            "expected_paths": expected,
+        })
+    return cases
+
+
+def evaluate_patch(workspace, patch, *, expected_paths):
+    checks = []
+    try:
+        patch = validate_repair_patch(patch)
+    except RepairPatchError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "checks": [],
+        }
+    paths = patch_paths(patch)
+    for expected in expected_paths:
+        mentioned = expected in paths
+        checks.append({
+            "id": f"path:{expected}",
+            "ok": mentioned,
+            "error": None if mentioned else "补丁未改该文件",
+        })
+    extra = [path for path in paths if path not in expected_paths]
+    checks.append({
+        "id": "extra_paths",
+        "ok": True,
+        "error": None if not extra else "额外修改了：" + ", ".join(extra),
+    })
+    verify = apply_repair_patch(
+        workspace,
+        patch,
+        allowed_paths=paths,
+        dry_run=True,
+    )
+    checks.append({
+        "id": "verify",
+        "ok": bool(verify.get("ok")),
+        "error": None if verify.get("ok") else (verify.get("error") or "预演失败"),
+    })
+    return {
+        "ok": all(item["ok"] for item in checks),
+        "error": None,
+        "checks": checks,
+        "paths": paths,
+    }
+
+
+def _copy_workspace(src, dest):
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(
+        src,
+        dest,
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            ".pytest_cache",
+            ".git",
+            ".venv",
+            "venv",
+        ),
+    )
+
+
+def evaluate_case(fixture, case, patch, work_copy):
+    _copy_workspace(fixture, work_copy)
+    scored = evaluate_patch(
+        work_copy,
+        patch,
+        expected_paths=case["expected_paths"],
+    )
+    if not scored["ok"]:
+        return {
+            "id": case["id"],
+            "ok": False,
+            "error": scored.get("error"),
+            "checks": scored["checks"],
+            "applied": False,
+            "tests_passed": False,
+        }
+    apply_result = apply_repair_patch(
+        work_copy,
+        patch,
+        allowed_paths=patch_paths(patch),
+        dry_run=False,
+    )
+    applied = bool(apply_result.get("ok") and apply_result.get("applied"))
+    checks = list(scored["checks"])
+    checks.append({
+        "id": "apply",
+        "ok": applied,
+        "error": None if applied else (apply_result.get("error") or "写入未成功"),
+    })
+    tests_passed = False
+    if applied:
+        pytest_result = run_pytest(work_copy)
+        tests_passed = bool(pytest_result.get("passed"))
+        checks.append({
+            "id": "pytest",
+            "ok": tests_passed,
+            "error": None if tests_passed else (pytest_result.get("error") or "pytest 未通过"),
+        })
+    else:
+        checks.append({
+            "id": "pytest",
+            "ok": False,
+            "error": "未写入，未运行 pytest",
+        })
+    return {
+        "id": case["id"],
+        "ok": all(item["ok"] for item in checks),
+        "error": None,
+        "checks": checks,
+        "applied": applied,
+        "tests_passed": tests_passed,
+    }
+
+
+def evaluate_cases(fixture, cases, patches, out_dir):
+    results = []
+    for case in cases:
+        patch = patches.get(case["id"])
+        if patch is None:
+            results.append({
+                "id": case["id"],
+                "ok": False,
+                "error": "缺少对应补丁",
+                "checks": [],
+                "applied": False,
+                "tests_passed": False,
+            })
+            continue
+        work_copy = Path(out_dir) / case["id"] / "repo"
+        try:
+            results.append(evaluate_case(fixture, case, patch, work_copy))
+        except (RepairPatchError, OSError, UnicodeError) as exc:
+            results.append({
+                "id": case["id"],
+                "ok": False,
+                "error": str(exc),
+                "checks": [],
+                "applied": False,
+                "tests_passed": False,
+            })
+    return {
+        "ok": all(item["ok"] for item in results),
+        "results": results,
+    }
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="核对修复补丁：路径、预演、写入副本后 pytest"
+    )
+    parser.add_argument("--workspace", required=True, help="有缺陷的目标仓库模板，绝对路径")
+    parser.add_argument("--cases-dir", required=True, help="含 cases.json 的目录")
+    parser.add_argument("--out-dir", required=True, help="补丁、副本与评分输出目录")
+    parser.add_argument(
+        "--run",
+        action="store_true",
+        help="先对每个 case 调用提案（会使用模型）；省略则只评分已有补丁",
+    )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help="只跑指定案例 id，可重复",
+    )
+    return parser.parse_args(argv)
+
+
+def require_out_dir(raw_path):
+    path = Path(raw_path)
+    if not path.is_absolute():
+        raise ValueError("--out-dir 必须是绝对路径")
+    path.mkdir(parents=True, exist_ok=True)
+    return path.resolve()
+
+
+def _write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_patches(out_dir, cases):
+    patches = {}
+    for case in cases:
+        path = Path(out_dir) / f"{case['id']}.json"
+        if not path.is_file():
+            continue
+        patches[case["id"]] = json.loads(path.read_text(encoding="utf-8"))
+    return patches
+
+
+def run_cases(workspace, cases, out_dir, *, propose_factory=None):
+    patches = {}
+    for case in cases:
+        recorder = TraceRecorder()
+        factory = propose_factory or (
+            lambda item, rec=recorder: default_runner_factory(item, recorder=rec)
+        )
+        try:
+            patch = factory(workspace)(case["issue_text"])
+        except Exception as exc:
+            _write_json(
+                Path(out_dir) / f"{case['id']}.error.json",
+                {"ok": False, "error": str(exc)},
+            )
+            continue
+        patches[case["id"]] = patch
+        _write_json(Path(out_dir) / f"{case['id']}.json", patch)
+        write_trace(
+            Path(out_dir) / f"{case['id']}-trace.json",
+            kind="propose",
+            issue_text=case["issue_text"],
+            events=recorder.events,
+            output=patch,
+        )
+    return patches
+
+
+def main(argv=None, *, run_cases_fn=None, propose_factory=None):
+    try:
+        args = parse_args(sys.argv[1:] if argv is None else argv)
+        workspace = require_workspace(args.workspace)
+        cases_dir = Path(args.cases_dir)
+        if not cases_dir.is_absolute():
+            raise ValueError("--cases-dir 必须是绝对路径")
+        out_dir = require_out_dir(args.out_dir)
+        cases = load_repair_cases(cases_dir)
+        if args.case_id:
+            wanted = set(args.case_id)
+            known = {case["id"] for case in cases}
+            missing = wanted - known
+            if missing:
+                raise EvalError("未知 case-id：" + ", ".join(sorted(missing)))
+            cases = [case for case in cases if case["id"] in wanted]
+        if args.run:
+            runner = run_cases_fn or (
+                lambda ws, items, dest: run_cases(
+                    ws, items, dest, propose_factory=propose_factory
+                )
+            )
+            patches = runner(workspace, cases, out_dir)
+        else:
+            patches = load_patches(out_dir, cases)
+        scored = evaluate_cases(workspace, cases, patches, out_dir)
+        _write_json(out_dir / "score.json", scored)
+        print(json.dumps(scored, ensure_ascii=False, indent=2))
+        return 0 if scored["ok"] else 1
+    except (
+        ValueError,
+        EvalError,
+        RepairPatchError,
+        OSError,
+        json.JSONDecodeError,
+        KeyError,
+        RuntimeError,
+    ) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

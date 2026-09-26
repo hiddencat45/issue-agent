@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "id": "keep_spaces",
+      "issue_file": "keep_spaces.txt",
+      "expected_paths": ["notes.py"]
+    }
+  ]
+}
