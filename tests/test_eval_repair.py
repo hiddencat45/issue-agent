@@ -192,6 +192,10 @@ def test_repo_fixture_scores_good_and_bad(tmp_path, capsys):
         (cases_dir / "patches" / "join_labels.json").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    (out_dir / "glue_tags.json").write_text(
+        (cases_dir / "patches" / "glue_tags.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     code = main([
         "--workspace",
         str(workspace.resolve()),
@@ -210,6 +214,11 @@ def test_repo_fixture_scores_good_and_bad(tmp_path, capsys):
     assert by_id["join_labels"]["tests_passed"] is True
     assert "strip" not in (out_dir / "keep_spaces" / "repo" / "notes.py").read_text(encoding="utf-8")
     assert ", " in (out_dir / "join_labels" / "repo" / "labels.py").read_text(encoding="utf-8")
+    assert by_id["glue_tags"]["actual_ok"] is True
+    assert by_id["glue_tags"]["tests_passed"] is True
+    assert ", " in (out_dir / "glue_tags" / "repo" / "glue.py").read_text(encoding="utf-8")
+    assert by_id["glue_tags_readme"]["actual_ok"] is False
+    assert by_id["glue_tags_readme"]["ok"] is True
     assert by_id["wrong_file"]["actual_ok"] is False
     assert by_id["wrong_file"]["ok"] is True
     assert by_id["mismatch"]["actual_ok"] is False
@@ -389,3 +398,65 @@ def test_run_calls_both_real_defects(tmp_path, capsys):
     assert by_id["keep_spaces"]["tests_passed"] is True
     assert by_id["join_labels"]["tests_passed"] is True
     assert by_id["wrong_file"]["actual_ok"] is False
+
+
+def test_following_readme_fails_pytest(tmp_path):
+    repo = tmp_path / "glue"
+    repo.mkdir()
+    (repo / "glue.py").write_text(
+        "def glue_tags(parts):\n    return \"\".join(parts)\n",
+        encoding="utf-8",
+    )
+    (repo / "test_glue.py").write_text(
+        "from glue import glue_tags\n\n"
+        "def test_glue_tags_uses_comma_space():\n"
+        "    assert glue_tags([\"a\", \"b\"]) == \"a, b\"\n",
+        encoding="utf-8",
+    )
+    space_patch = {
+        "path": "glue.py",
+        "old_text": "    return \"\".join(parts)\n",
+        "new_text": "    return \" \".join(parts)\n",
+        "rationale": "按 README",
+    }
+    scored = evaluate_patch(repo, space_patch, expected_paths=["glue.py"])
+    assert scored["ok"] is True
+    from app.eval_repair import evaluate_case
+    result = evaluate_case(
+        repo,
+        {"id": "x", "expected_paths": ["glue.py"], "must_not_edit": ["test_glue.py"]},
+        space_patch,
+        tmp_path / "copy",
+    )
+    assert result["tests_passed"] is False
+    assert result["ok"] is False
+
+
+def test_must_not_edit_tests(tmp_path):
+    repo = tmp_path / "glue"
+    repo.mkdir()
+    (repo / "glue.py").write_text("def glue_tags(parts):\n    return 1\n", encoding="utf-8")
+    (repo / "test_glue.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    patch = {
+        "rationale": "改测试迎合文档",
+        "edits": [
+            {
+                "path": "glue.py",
+                "old_text": "    return 1\n",
+                "new_text": "    return 2\n",
+            },
+            {
+                "path": "test_glue.py",
+                "old_text": "    assert True\n",
+                "new_text": "    assert False\n",
+            },
+        ],
+    }
+    scored = evaluate_patch(
+        repo,
+        patch,
+        expected_paths=["glue.py"],
+        must_not_edit=["test_glue.py"],
+    )
+    assert scored["ok"] is False
+    assert any(item["id"] == "must_not_edit:test_glue.py" and item["ok"] is False for item in scored["checks"])

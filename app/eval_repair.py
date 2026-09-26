@@ -14,7 +14,7 @@ from app.triage import require_workspace
 
 
 REQUIRED_CASE_KEYS = {"id", "issue_file", "expected_paths"}
-OPTIONAL_CASE_KEYS = {"patch_file", "expect_ok", "workspace"}
+OPTIONAL_CASE_KEYS = {"patch_file", "expect_ok", "workspace", "must_not_edit"}
 
 
 def load_repair_cases(cases_dir):
@@ -36,7 +36,7 @@ def load_repair_cases(cases_dir):
         if not REQUIRED_CASE_KEYS <= keys or keys - REQUIRED_CASE_KEYS - OPTIONAL_CASE_KEYS:
             raise EvalError(
                 "case 字段必须包含 id、issue_file、expected_paths，"
-                "可选 patch_file、expect_ok、workspace"
+                "可选 patch_file、expect_ok、workspace、must_not_edit"
             )
         issue_path = root / item["issue_file"]
         if not issue_path.is_file():
@@ -73,6 +73,14 @@ def load_repair_cases(cases_dir):
                 raise EvalError("workspace 必须是案例目录内的相对路径")
             if not (root / relative).is_dir():
                 raise EvalError(f"workspace 不存在：{workspace_rel}")
+        must_not_edit = item.get("must_not_edit", [])
+        if must_not_edit is None:
+            must_not_edit = []
+        if not isinstance(must_not_edit, list) or not all(
+            isinstance(x, str) and x and ".." not in Path(x).parts and not Path(x).is_absolute()
+            for x in must_not_edit
+        ):
+            raise EvalError("must_not_edit 必须是仓库内相对路径数组")
         cases.append({
             "id": item["id"],
             "issue_file": item["issue_file"],
@@ -81,11 +89,12 @@ def load_repair_cases(cases_dir):
             "patch_file": patch_file,
             "expect_ok": expect_ok,
             "workspace": workspace_rel,
+            "must_not_edit": must_not_edit,
         })
     return cases
 
 
-def evaluate_patch(workspace, patch, *, expected_paths):
+def evaluate_patch(workspace, patch, *, expected_paths, must_not_edit=None):
     checks = []
     try:
         patch = validate_repair_patch(patch)
@@ -102,6 +111,13 @@ def evaluate_patch(workspace, patch, *, expected_paths):
             "id": f"path:{expected}",
             "ok": mentioned,
             "error": None if mentioned else "补丁未改该文件",
+        })
+    for forbidden in must_not_edit or []:
+        edited = forbidden in paths
+        checks.append({
+            "id": f"must_not_edit:{forbidden}",
+            "ok": not edited,
+            "error": None if not edited else "补丁改了不允许修改的文件：" + forbidden,
         })
     extra = [path for path in paths if path not in expected_paths]
     checks.append({
@@ -150,6 +166,7 @@ def evaluate_case(fixture, case, patch, work_copy):
         work_copy,
         patch,
         expected_paths=case["expected_paths"],
+        must_not_edit=case.get("must_not_edit") or [],
     )
     if not scored["ok"]:
         return {

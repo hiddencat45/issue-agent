@@ -67,7 +67,7 @@ python -m app.eval_cases --workspace "D:\path\to\target-repo" --cases-dir "D:\pa
 
 ## 修复评测
 
-对固定案例：补丁是否改到该改的文件、原文能否预演对上，然后在**仓库副本**上写入并跑 `python -m pytest -q`。当前有两种真实缺陷：保留空格、逗号拼接。额外改已有说明文件不判失败。模板仓库不会被改。
+对固定案例：补丁是否改到该改的文件、原文能否预演对上，然后在**仓库副本**上写入并跑 `python -m pytest -q`。当前真实缺陷包括：保留空格、逗号拼接，以及文档与测试不一致的 glue_tags（测试要逗号，README 要空格）。额外改已有说明文件不判失败。模板仓库不会被改。
 
 ```powershell
 python -m app.eval_repair --workspace "D:\path\to\issue-agent\cases\repair\workspace" --cases-dir "D:\path\to\issue-agent\cases\repair" --out-dir "D:\path\to\out" --run

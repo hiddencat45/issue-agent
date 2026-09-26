@@ -16,6 +16,17 @@
       "workspace": "workspaces/join_labels"
     },
     {
+      "id": "glue_tags",
+      "issue_file": "glue_tags.txt",
+      "expected_paths": [
+        "glue.py"
+      ],
+      "workspace": "workspaces/glue_tags",
+      "must_not_edit": [
+        "test_glue.py"
+      ]
+    },
+    {
       "id": "wrong_file",
       "issue_file": "keep_spaces.txt",
       "expected_paths": [
@@ -32,6 +43,19 @@
       ],
       "patch_file": "patches/mismatch.json",
       "expect_ok": false
+    },
+    {
+      "id": "glue_tags_readme",
+      "issue_file": "glue_tags.txt",
+      "expected_paths": [
+        "glue.py"
+      ],
+      "workspace": "workspaces/glue_tags",
+      "patch_file": "patches/glue_tags_readme.json",
+      "expect_ok": false,
+      "must_not_edit": [
+        "test_glue.py"
+      ]
     }
   ]
 }

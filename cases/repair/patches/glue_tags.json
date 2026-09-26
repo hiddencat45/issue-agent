@@ -1,0 +1,6 @@
+{
+  "path": "glue.py",
+  "old_text": "    return \"\".join(parts)\n",
+  "new_text": "    return \", \".join(parts)\n",
+  "rationale": "按测试用逗号加空格拼接"
+}
