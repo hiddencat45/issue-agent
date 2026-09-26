@@ -73,7 +73,7 @@ python -m app.eval_cases --workspace "D:\path\to\target-repo" --cases-dir "D:\pa
 python -m app.eval_repair --workspace "D:\path\to\issue-agent\cases\repair\workspace" --cases-dir "D:\path\to\issue-agent\cases\repair" --out-dir "D:\path\to\out" --run
 ```
 
-省略 `--run` 时，只评分已有补丁，不调模型。`--run` 会为保留空格、逗号拼接两条真实缺陷调用模型。金标失败补丁（改错文件、原文对不上）仍不调模型，只用来确认评测会判失败。
+省略 `--run` 时，只评分已有补丁，不调模型。`--run` 会连续为保留空格、逗号拼接两条真实缺陷调用模型；一条失败不会跳过另一条。金标失败补丁（改错文件、原文对不上）仍不调模型，只用来确认评测会判失败。
 
 ## 测试
 

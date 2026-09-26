@@ -294,3 +294,98 @@ def test_join_labels_patch_verifies(tmp_path):
     }
     scored = evaluate_patch(repo, patch, expected_paths=["labels.py"])
     assert scored["ok"] is True
+
+
+JOIN_PATCH = {
+    "path": "labels.py",
+    "old_text": "    return \"\".join(parts)\n",
+    "new_text": "    return \", \".join(parts)\n",
+    "rationale": "用逗号加空格拼接",
+}
+
+
+def test_run_calls_both_real_defects(tmp_path, capsys):
+    repo = write_fixture(tmp_path)
+    (repo / "README.md").write_text("format_note 会去掉首尾空格。\n", encoding="utf-8")
+    join_repo = tmp_path / "cases_ws" / "join_labels"
+    join_repo.mkdir(parents=True)
+    (join_repo / "labels.py").write_text(
+        "def join_labels(parts):\n    return \"\".join(parts)\n",
+        encoding="utf-8",
+    )
+    (join_repo / "test_labels.py").write_text(
+        "from labels import join_labels\n\n"
+        "def test_join_labels_with_comma_space():\n"
+        "    assert join_labels([\"red\", \"blue\"]) == \"red, blue\"\n",
+        encoding="utf-8",
+    )
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    (cases_dir / "keep_spaces.txt").write_text("format_note 不应再去掉空格\n", encoding="utf-8")
+    (cases_dir / "join_labels.txt").write_text("join_labels 应用逗号加空格\n", encoding="utf-8")
+    (cases_dir / "workspaces" / "join_labels").mkdir(parents=True)
+    for name in ("labels.py", "test_labels.py"):
+        (cases_dir / "workspaces" / "join_labels" / name).write_text(
+            (join_repo / name).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    (cases_dir / "patches").mkdir()
+    (cases_dir / "patches" / "wrong_file.json").write_text(
+        json.dumps({
+            "path": "README.md",
+            "old_text": "format_note 会去掉首尾空格。",
+            "new_text": "format_note 会保留首尾空格。",
+            "rationale": "只改说明",
+        }),
+        encoding="utf-8",
+    )
+    (cases_dir / "cases.json").write_text(json.dumps({
+        "cases": [
+            {
+                "id": "keep_spaces",
+                "issue_file": "keep_spaces.txt",
+                "expected_paths": ["notes.py"],
+            },
+            {
+                "id": "join_labels",
+                "issue_file": "join_labels.txt",
+                "expected_paths": ["labels.py"],
+                "workspace": "workspaces/join_labels",
+            },
+            {
+                "id": "wrong_file",
+                "issue_file": "keep_spaces.txt",
+                "expected_paths": ["notes.py"],
+                "patch_file": "patches/wrong_file.json",
+                "expect_ok": False,
+            },
+        ]
+    }), encoding="utf-8")
+    seen = []
+
+    def fake_run(workspace, cases, dest):
+        seen.extend(case["id"] for case in cases)
+        return {
+            "keep_spaces": VALID_PATCH,
+            "join_labels": JOIN_PATCH,
+        }
+
+    code = main(
+        [
+            "--workspace",
+            str(repo.resolve()),
+            "--cases-dir",
+            str(cases_dir.resolve()),
+            "--out-dir",
+            str((tmp_path / "out").resolve()),
+            "--run",
+        ],
+        run_cases_fn=fake_run,
+    )
+    scored = json.loads(capsys.readouterr().out)
+    assert seen == ["keep_spaces", "join_labels"]
+    by_id = {item["id"]: item for item in scored["results"]}
+    assert code == 0
+    assert by_id["keep_spaces"]["tests_passed"] is True
+    assert by_id["join_labels"]["tests_passed"] is True
+    assert by_id["wrong_file"]["actual_ok"] is False
