@@ -3,7 +3,27 @@
     {
       "id": "keep_spaces",
       "issue_file": "keep_spaces.txt",
-      "expected_paths": ["notes.py"]
+      "expected_paths": [
+        "notes.py"
+      ]
+    },
+    {
+      "id": "wrong_file",
+      "issue_file": "keep_spaces.txt",
+      "expected_paths": [
+        "notes.py"
+      ],
+      "patch_file": "patches/wrong_file.json",
+      "expect_ok": false
+    },
+    {
+      "id": "mismatch",
+      "issue_file": "keep_spaces.txt",
+      "expected_paths": [
+        "notes.py"
+      ],
+      "patch_file": "patches/mismatch.json",
+      "expect_ok": false
     }
   ]
 }

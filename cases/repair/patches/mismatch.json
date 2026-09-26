@@ -1,0 +1,6 @@
+{
+  "path": "notes.py",
+  "old_text": "    return text.strip().lower()\n",
+  "new_text": "    return text\n",
+  "rationale": "原文并不存在"
+}

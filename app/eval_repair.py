@@ -13,6 +13,10 @@ from app.trace import TraceRecorder, write_trace
 from app.triage import require_workspace
 
 
+REQUIRED_CASE_KEYS = {"id", "issue_file", "expected_paths"}
+OPTIONAL_CASE_KEYS = {"patch_file", "expect_ok"}
+
+
 def load_repair_cases(cases_dir):
     root = Path(cases_dir)
     manifest = root / "cases.json"
@@ -28,8 +32,12 @@ def load_repair_cases(cases_dir):
     for item in data["cases"]:
         if not isinstance(item, dict):
             raise EvalError("case 必须是对象")
-        if set(item) != {"id", "issue_file", "expected_paths"}:
-            raise EvalError("case 字段必须恰好为 id、issue_file、expected_paths")
+        keys = set(item)
+        if not REQUIRED_CASE_KEYS <= keys or keys - REQUIRED_CASE_KEYS - OPTIONAL_CASE_KEYS:
+            raise EvalError(
+                "case 字段必须包含 id、issue_file、expected_paths，"
+                "可选 patch_file、expect_ok"
+            )
         issue_path = root / item["issue_file"]
         if not issue_path.is_file():
             raise EvalError(f"issue 文件不存在：{item['issue_file']}")
@@ -38,11 +46,28 @@ def load_repair_cases(cases_dir):
             isinstance(x, str) and x for x in expected
         ):
             raise EvalError("expected_paths 必须是非空字符串数组")
+        expect_ok = item.get("expect_ok", True)
+        if not isinstance(expect_ok, bool):
+            raise EvalError("expect_ok 必须是布尔值")
+        patch_file = item.get("patch_file")
+        if patch_file is not None:
+            relative = Path(patch_file)
+            if (
+                not isinstance(patch_file, str)
+                or not patch_file.strip()
+                or relative.is_absolute()
+                or ".." in relative.parts
+            ):
+                raise EvalError("patch_file 必须是案例目录内的相对路径")
+            if not (root / relative).is_file():
+                raise EvalError(f"patch 文件不存在：{patch_file}")
         cases.append({
             "id": item["id"],
             "issue_file": item["issue_file"],
             "issue_text": issue_path.read_text(encoding="utf-8"),
             "expected_paths": expected,
+            "patch_file": patch_file,
+            "expect_ok": expect_ok,
         })
     return cases
 
@@ -176,20 +201,34 @@ def evaluate_cases(fixture, cases, patches, out_dir):
             continue
         work_copy = Path(out_dir) / case["id"] / "repo"
         try:
-            results.append(evaluate_case(fixture, case, patch, work_copy))
+            result = evaluate_case(fixture, case, patch, work_copy)
         except (RepairPatchError, OSError, UnicodeError) as exc:
-            results.append({
+            result = {
                 "id": case["id"],
                 "ok": False,
                 "error": str(exc),
                 "checks": [],
                 "applied": False,
                 "tests_passed": False,
-            })
+            }
+        results.append(_with_expectation(case, result))
     return {
         "ok": all(item["ok"] for item in results),
         "results": results,
     }
+
+
+def _with_expectation(case, result):
+    expect_ok = case.get("expect_ok", True)
+    actual_ok = bool(result.get("ok"))
+    matched = actual_ok is expect_ok
+    payload = dict(result)
+    payload["actual_ok"] = actual_ok
+    payload["expect_ok"] = expect_ok
+    payload["ok"] = matched
+    if not matched and not payload.get("error"):
+        payload["error"] = "结果与 expect_ok 不符"
+    return payload
 
 
 def parse_args(argv):
@@ -229,9 +268,18 @@ def _write_json(path, payload):
     )
 
 
-def load_patches(out_dir, cases):
+def load_patches(out_dir, cases, cases_dir=None):
     patches = {}
+    root = Path(cases_dir) if cases_dir is not None else None
     for case in cases:
+        canned = case.get("patch_file")
+        if canned:
+            if root is None:
+                continue
+            path = root / canned
+            if path.is_file():
+                patches[case["id"]] = json.loads(path.read_text(encoding="utf-8"))
+            continue
         path = Path(out_dir) / f"{case['id']}.json"
         if not path.is_file():
             continue
@@ -242,6 +290,8 @@ def load_patches(out_dir, cases):
 def run_cases(workspace, cases, out_dir, *, propose_factory=None):
     patches = {}
     for case in cases:
+        if case.get("patch_file"):
+            continue
         recorder = TraceRecorder()
         factory = propose_factory or (
             lambda item, rec=recorder: default_runner_factory(item, recorder=rec)
@@ -282,15 +332,15 @@ def main(argv=None, *, run_cases_fn=None, propose_factory=None):
             if missing:
                 raise EvalError("未知 case-id：" + ", ".join(sorted(missing)))
             cases = [case for case in cases if case["id"] in wanted]
+        patches = load_patches(out_dir, cases, cases_dir)
         if args.run:
+            to_run = [case for case in cases if not case.get("patch_file")]
             runner = run_cases_fn or (
                 lambda ws, items, dest: run_cases(
                     ws, items, dest, propose_factory=propose_factory
                 )
             )
-            patches = runner(workspace, cases, out_dir)
-        else:
-            patches = load_patches(out_dir, cases)
+            patches.update(runner(workspace, to_run, out_dir))
         scored = evaluate_cases(workspace, cases, patches, out_dir)
         _write_json(out_dir / "score.json", scored)
         print(json.dumps(scored, ensure_ascii=False, indent=2))

@@ -73,7 +73,7 @@ python -m app.eval_cases --workspace "D:\path\to\target-repo" --cases-dir "D:\pa
 python -m app.eval_repair --workspace "D:\path\to\issue-agent\cases\repair\workspace" --cases-dir "D:\path\to\issue-agent\cases\repair" --out-dir "D:\path\to\out" --run
 ```
 
-省略 `--run` 时，只评分 `--out-dir` 里已有的 `{id}.json` 补丁，不调模型。
+省略 `--run` 时，只评分已有补丁，不调模型。案例里的金标失败补丁（改错文件、原文对不上）用来确认评测会判失败；`--run` 不会对它们调用模型。
 
 ## 测试
 

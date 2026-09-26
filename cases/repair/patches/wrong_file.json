@@ -1,0 +1,6 @@
+{
+  "path": "README.md",
+  "old_text": "format_note 会去掉首尾空格。",
+  "new_text": "format_note 会保留首尾空格。",
+  "rationale": "只改说明，不改代码"
+}

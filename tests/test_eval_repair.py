@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from app.eval_repair import evaluate_patch, load_repair_cases, main
 
@@ -174,3 +175,97 @@ def test_extra_readme_is_allowed(tmp_path):
     }
     scored = evaluate_patch(repo, patch, expected_paths=["notes.py"])
     assert scored["ok"] is True
+
+
+def test_repo_fixture_scores_good_and_bad(tmp_path, capsys):
+    root = Path(__file__).resolve().parent.parent
+    workspace = root / "cases" / "repair" / "workspace"
+    cases_dir = root / "cases" / "repair"
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    before = (workspace / "notes.py").read_text(encoding="utf-8")
+    (out_dir / "keep_spaces.json").write_text(
+        json.dumps(VALID_PATCH),
+        encoding="utf-8",
+    )
+    code = main([
+        "--workspace",
+        str(workspace.resolve()),
+        "--cases-dir",
+        str(cases_dir.resolve()),
+        "--out-dir",
+        str(out_dir.resolve()),
+    ])
+    scored = json.loads(capsys.readouterr().out)
+    by_id = {item["id"]: item for item in scored["results"]}
+    assert code == 0
+    assert scored["ok"] is True
+    assert by_id["keep_spaces"]["actual_ok"] is True
+    assert by_id["keep_spaces"]["tests_passed"] is True
+    assert by_id["wrong_file"]["actual_ok"] is False
+    assert by_id["wrong_file"]["ok"] is True
+    assert by_id["mismatch"]["actual_ok"] is False
+    assert by_id["mismatch"]["ok"] is True
+    assert (workspace / "notes.py").read_text(encoding="utf-8") == before
+
+
+def test_run_skips_canned_patches(tmp_path, capsys):
+    repo = write_fixture(tmp_path)
+    (repo / "README.md").write_text("format_note 会去掉首尾空格。\n", encoding="utf-8")
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    (cases_dir / "keep_spaces.txt").write_text("format_note 不应再去掉空格\n", encoding="utf-8")
+    (cases_dir / "patches").mkdir()
+    (cases_dir / "patches" / "wrong_file.json").write_text(
+        json.dumps({
+            "path": "README.md",
+            "old_text": "format_note 会去掉首尾空格。",
+            "new_text": "format_note 会保留首尾空格。",
+            "rationale": "只改说明",
+        }),
+        encoding="utf-8",
+    )
+    (cases_dir / "cases.json").write_text(json.dumps({
+        "cases": [
+            {
+                "id": "keep_spaces",
+                "issue_file": "keep_spaces.txt",
+                "expected_paths": ["notes.py"],
+            },
+            {
+                "id": "wrong_file",
+                "issue_file": "keep_spaces.txt",
+                "expected_paths": ["notes.py"],
+                "patch_file": "patches/wrong_file.json",
+                "expect_ok": False,
+            },
+        ]
+    }), encoding="utf-8")
+    seen = []
+
+    def fake_run(workspace, cases, dest):
+        seen.extend(case["id"] for case in cases)
+        (dest / "keep_spaces.json").write_text(
+            json.dumps(VALID_PATCH),
+            encoding="utf-8",
+        )
+        return {"keep_spaces": VALID_PATCH}
+
+    code = main(
+        [
+            "--workspace",
+            str(repo.resolve()),
+            "--cases-dir",
+            str(cases_dir.resolve()),
+            "--out-dir",
+            str((tmp_path / "out").resolve()),
+            "--run",
+        ],
+        run_cases_fn=fake_run,
+    )
+    scored = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert seen == ["keep_spaces"]
+    by_id = {item["id"]: item for item in scored["results"]}
+    assert by_id["keep_spaces"]["actual_ok"] is True
+    assert by_id["wrong_file"]["actual_ok"] is False
