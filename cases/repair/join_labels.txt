@@ -1,0 +1,1 @@
+join_labels 现在会把标签直接粘在一起。请改成用逗号加空格拼接，例如 red 和 blue 得到 red, blue。

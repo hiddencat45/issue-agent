@@ -1,0 +1,6 @@
+{
+  "path": "labels.py",
+  "old_text": "    return \"\".join(parts)\n",
+  "new_text": "    return \", \".join(parts)\n",
+  "rationale": "用逗号加空格拼接标签"
+}

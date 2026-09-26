@@ -14,7 +14,7 @@ from app.triage import require_workspace
 
 
 REQUIRED_CASE_KEYS = {"id", "issue_file", "expected_paths"}
-OPTIONAL_CASE_KEYS = {"patch_file", "expect_ok"}
+OPTIONAL_CASE_KEYS = {"patch_file", "expect_ok", "workspace"}
 
 
 def load_repair_cases(cases_dir):
@@ -36,7 +36,7 @@ def load_repair_cases(cases_dir):
         if not REQUIRED_CASE_KEYS <= keys or keys - REQUIRED_CASE_KEYS - OPTIONAL_CASE_KEYS:
             raise EvalError(
                 "case 字段必须包含 id、issue_file、expected_paths，"
-                "可选 patch_file、expect_ok"
+                "可选 patch_file、expect_ok、workspace"
             )
         issue_path = root / item["issue_file"]
         if not issue_path.is_file():
@@ -61,6 +61,18 @@ def load_repair_cases(cases_dir):
                 raise EvalError("patch_file 必须是案例目录内的相对路径")
             if not (root / relative).is_file():
                 raise EvalError(f"patch 文件不存在：{patch_file}")
+        workspace_rel = item.get("workspace")
+        if workspace_rel is not None:
+            relative = Path(workspace_rel)
+            if (
+                not isinstance(workspace_rel, str)
+                or not workspace_rel.strip()
+                or relative.is_absolute()
+                or ".." in relative.parts
+            ):
+                raise EvalError("workspace 必须是案例目录内的相对路径")
+            if not (root / relative).is_dir():
+                raise EvalError(f"workspace 不存在：{workspace_rel}")
         cases.append({
             "id": item["id"],
             "issue_file": item["issue_file"],
@@ -68,6 +80,7 @@ def load_repair_cases(cases_dir):
             "expected_paths": expected,
             "patch_file": patch_file,
             "expect_ok": expect_ok,
+            "workspace": workspace_rel,
         })
     return cases
 
@@ -185,7 +198,20 @@ def evaluate_case(fixture, case, patch, work_copy):
     }
 
 
-def evaluate_cases(fixture, cases, patches, out_dir):
+def resolve_case_workspace(default_workspace, cases_dir, case):
+    relative = case.get("workspace")
+    if not relative:
+        return Path(default_workspace).resolve()
+    root = Path(cases_dir).resolve()
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root):
+        raise EvalError("workspace 必须在案例目录内")
+    if not path.is_dir():
+        raise EvalError(f"workspace 不存在：{relative}")
+    return path
+
+
+def evaluate_cases(fixture, cases, patches, out_dir, cases_dir=None):
     results = []
     for case in cases:
         patch = patches.get(case["id"])
@@ -200,8 +226,9 @@ def evaluate_cases(fixture, cases, patches, out_dir):
             })
             continue
         work_copy = Path(out_dir) / case["id"] / "repo"
+        case_root = resolve_case_workspace(fixture, cases_dir, case)
         try:
-            result = evaluate_case(fixture, case, patch, work_copy)
+            result = evaluate_case(case_root, case, patch, work_copy)
         except (RepairPatchError, OSError, UnicodeError) as exc:
             result = {
                 "id": case["id"],
@@ -287,7 +314,7 @@ def load_patches(out_dir, cases, cases_dir=None):
     return patches
 
 
-def run_cases(workspace, cases, out_dir, *, propose_factory=None):
+def run_cases(workspace, cases, out_dir, *, propose_factory=None, cases_dir=None):
     patches = {}
     for case in cases:
         if case.get("patch_file"):
@@ -297,7 +324,8 @@ def run_cases(workspace, cases, out_dir, *, propose_factory=None):
             lambda item, rec=recorder: default_runner_factory(item, recorder=rec)
         )
         try:
-            patch = factory(workspace)(case["issue_text"])
+            case_root = resolve_case_workspace(workspace, cases_dir, case)
+            patch = factory(case_root)(case["issue_text"])
         except Exception as exc:
             _write_json(
                 Path(out_dir) / f"{case['id']}.error.json",
@@ -337,11 +365,17 @@ def main(argv=None, *, run_cases_fn=None, propose_factory=None):
             to_run = [case for case in cases if not case.get("patch_file")]
             runner = run_cases_fn or (
                 lambda ws, items, dest: run_cases(
-                    ws, items, dest, propose_factory=propose_factory
+                    ws,
+                    items,
+                    dest,
+                    propose_factory=propose_factory,
+                    cases_dir=cases_dir,
                 )
             )
             patches.update(runner(workspace, to_run, out_dir))
-        scored = evaluate_cases(workspace, cases, patches, out_dir)
+        scored = evaluate_cases(
+            workspace, cases, patches, out_dir, cases_dir=cases_dir
+        )
         _write_json(out_dir / "score.json", scored)
         print(json.dumps(scored, ensure_ascii=False, indent=2))
         return 0 if scored["ok"] else 1

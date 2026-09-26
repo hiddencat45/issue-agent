@@ -202,6 +202,10 @@ def test_repo_fixture_scores_good_and_bad(tmp_path, capsys):
     assert scored["ok"] is True
     assert by_id["keep_spaces"]["actual_ok"] is True
     assert by_id["keep_spaces"]["tests_passed"] is True
+    assert by_id["join_labels"]["actual_ok"] is True
+    assert by_id["join_labels"]["tests_passed"] is True
+    assert "strip" not in (out_dir / "keep_spaces" / "repo" / "notes.py").read_text(encoding="utf-8")
+    assert ", " in (out_dir / "join_labels" / "repo" / "labels.py").read_text(encoding="utf-8")
     assert by_id["wrong_file"]["actual_ok"] is False
     assert by_id["wrong_file"]["ok"] is True
     assert by_id["mismatch"]["actual_ok"] is False
@@ -269,3 +273,20 @@ def test_run_skips_canned_patches(tmp_path, capsys):
     by_id = {item["id"]: item for item in scored["results"]}
     assert by_id["keep_spaces"]["actual_ok"] is True
     assert by_id["wrong_file"]["actual_ok"] is False
+
+
+def test_join_labels_patch_verifies(tmp_path):
+    repo = tmp_path / "join"
+    repo.mkdir()
+    (repo / "labels.py").write_text(
+        "def join_labels(parts):\n    return \"\".join(parts)\n",
+        encoding="utf-8",
+    )
+    patch = {
+        "path": "labels.py",
+        "old_text": "    return \"\".join(parts)\n",
+        "new_text": "    return \", \".join(parts)\n",
+        "rationale": "用逗号加空格拼接",
+    }
+    scored = evaluate_patch(repo, patch, expected_paths=["labels.py"])
+    assert scored["ok"] is True

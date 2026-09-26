@@ -8,6 +8,15 @@
       ]
     },
     {
+      "id": "join_labels",
+      "issue_file": "join_labels.txt",
+      "expected_paths": [
+        "labels.py"
+      ],
+      "workspace": "workspaces/join_labels",
+      "patch_file": "patches/join_labels.json"
+    },
+    {
       "id": "wrong_file",
       "issue_file": "keep_spaces.txt",
       "expected_paths": [
