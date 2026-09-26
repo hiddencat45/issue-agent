@@ -13,8 +13,7 @@
       "expected_paths": [
         "labels.py"
       ],
-      "workspace": "workspaces/join_labels",
-      "patch_file": "patches/join_labels.json"
+      "workspace": "workspaces/join_labels"
     },
     {
       "id": "wrong_file",

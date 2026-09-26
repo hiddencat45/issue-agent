@@ -188,6 +188,10 @@ def test_repo_fixture_scores_good_and_bad(tmp_path, capsys):
         json.dumps(VALID_PATCH),
         encoding="utf-8",
     )
+    (out_dir / "join_labels.json").write_text(
+        (cases_dir / "patches" / "join_labels.json").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     code = main([
         "--workspace",
         str(workspace.resolve()),
