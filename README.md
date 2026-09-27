@@ -24,6 +24,8 @@ python -m pip install -r requirements.txt
 
 ## 本地演示（实习作品闭环）
 
+面试请看 `DEMO.md`（约 5 分钟，不调模型）。下面是同一条命令。
+
 不调模型、不改仓库、不发 GitHub 评论。用内置小仓库走完：分诊报告 → 补丁预演 → 评论预览。
 
 ```powershell
@@ -86,6 +88,7 @@ python -m app.propose --workspace "D:\path\to\repo" --issue-file issue.txt --pyt
 python -m app.repair --workspace "D:\path\to\repo" --patch-file next-patch.json --allow-write notes.py --apply --pytest
 ```
 
+写入并立刻跑测试（仍须 `--apply`）：
 
 ```powershell
 python -m app.issue --workspace "D:\path\to\repo" --issue-file issue.txt --out-dir "D:\path\to\out" --allow-write notes.py --apply --pytest
