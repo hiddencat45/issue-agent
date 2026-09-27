@@ -1,4 +1,4 @@
-from app.repair_apply import apply_repair_patch
+from app.repair_apply import apply_repair_patch, restore_files
 
 
 def write_notes(tmp_path):
@@ -196,3 +196,57 @@ def test_second_hunk_mismatch_writes_nothing(tmp_path):
     assert result["ok"] is False
     assert "恰好出现一次" in result["error"]
     assert notes.read_text(encoding="utf-8") == before
+
+
+def test_originals_out_and_restore(tmp_path):
+    notes = write_notes(tmp_path)
+    before = notes.read_text(encoding="utf-8")
+    originals = {}
+    result = apply_repair_patch(
+        tmp_path,
+        patch_body(),
+        allowed_paths=["notes.py"],
+        dry_run=False,
+        originals_out=originals,
+    )
+    assert result["applied"] is True
+    assert "strip" not in notes.read_text(encoding="utf-8")
+    assert originals["notes.py"] == before
+    restored = restore_files(tmp_path, originals)
+    assert restored["ok"] is True
+    assert notes.read_text(encoding="utf-8") == before
+
+
+def test_apply_json_file(tmp_path):
+    target = tmp_path / "config.json"
+    target.write_text('{"name": "old"}\n', encoding="utf-8")
+    result = apply_repair_patch(
+        tmp_path,
+        {
+            "path": "config.json",
+            "old_text": '{"name": "old"}',
+            "new_text": '{"name": "new"}',
+            "rationale": "rename",
+        },
+        allowed_paths=["config.json"],
+        dry_run=False,
+    )
+    assert result["ok"] is True
+    assert '"new"' in target.read_text(encoding="utf-8")
+
+
+def test_reject_png_patch(tmp_path):
+    target = tmp_path / "logo.png"
+    target.write_bytes(b"\x89PNG\r\n")
+    result = apply_repair_patch(
+        tmp_path,
+        {
+            "path": "logo.png",
+            "old_text": "PNG",
+            "new_text": "XXX",
+            "rationale": "no",
+        },
+        allowed_paths=["logo.png"],
+        dry_run=False,
+    )
+    assert result["ok"] is False

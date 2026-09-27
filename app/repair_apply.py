@@ -33,7 +33,7 @@ def _safe_existing_file(root, relative_path):
     return resolved
 
 
-def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True):
+def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True, originals_out=None):
     """在允许列表内替换已有文件中恰好出现一次的原文。多处修改先全部算完再写。"""
     try:
         patch = validate_repair_patch(patch)
@@ -58,6 +58,9 @@ def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True):
             originals[path] = text
             buffers[path] = text
             targets[path] = target
+        if originals_out is not None:
+            originals_out.clear()
+            originals_out.update(originals)
 
         for edit in patch["edits"]:
             path = edit["path"]
@@ -105,3 +108,21 @@ def apply_repair_patch(root, patch, *, allowed_paths, dry_run=True):
 
     except (RepairPatchError, ValueError, OSError, UnicodeError) as exc:
         return _error(str(exc))
+
+
+def restore_files(root, originals):
+    """Write snapshotted texts back. Does not create or delete files."""
+    root = Path(root).resolve()
+    restored = []
+    try:
+        if not root.is_dir():
+            raise RepairPatchError("工作区不存在或不是目录")
+        if not originals:
+            raise RepairPatchError("没有可回滚的原文")
+        for path, text in originals.items():
+            target = _safe_existing_file(root, path)
+            target.write_text(text, encoding="utf-8")
+            restored.append(path)
+        return {"ok": True, "restored": restored}
+    except (RepairPatchError, ValueError, OSError, UnicodeError) as exc:
+        return {"ok": False, "error": str(exc), "restored": restored}

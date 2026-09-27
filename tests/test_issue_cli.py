@@ -247,3 +247,135 @@ def test_pytest_failure_keeps_written_files(tmp_path, capsys):
     assert summary["applied"] is True
     assert summary["tests_passed"] is False
     assert "strip" not in notes.read_text(encoding="utf-8")
+
+
+def test_pytest_failure_saves_output(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    write_workspace_test(tmp_path, "def test_bad():\n    assert False\n")
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--pytest",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    summary = json.loads(capsys.readouterr().out)
+    pytest_result = json.loads((out_dir / "pytest.json").read_text(encoding="utf-8"))
+    assert code != 0
+    assert summary["applied"] is True
+    assert summary["tests_passed"] is False
+    assert summary["pytest_returncode"] == pytest_result["returncode"]
+    assert pytest_result["passed"] is False
+    assert pytest_result["output"]
+    assert "strip" not in notes.read_text(encoding="utf-8")
+    assert not (out_dir / "patch-retry.json").exists()
+
+
+def test_rollback_on_fail_restores_files(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    before = notes.read_text(encoding="utf-8")
+    write_workspace_test(tmp_path, "def test_bad():\n    assert False\n")
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--pytest",
+            "--rollback-on-fail",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    summary = json.loads(capsys.readouterr().out)
+    pytest_result = json.loads((out_dir / "pytest.json").read_text(encoding="utf-8"))
+    rollback = json.loads((out_dir / "rollback.json").read_text(encoding="utf-8"))
+    assert code != 0
+    assert summary["applied"] is True
+    assert summary["tests_passed"] is False
+    assert summary["rolled_back"] is True
+    assert pytest_result["passed"] is False
+    assert pytest_result["output"]
+    assert rollback["ok"] is True
+    assert notes.read_text(encoding="utf-8") == before
+
+
+def test_rollback_on_fail_requires_pytest(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    before = notes.read_text(encoding="utf-8")
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--rollback-on-fail",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    err = capsys.readouterr().err
+    assert code != 0
+    assert "--pytest" in err
+    assert notes.read_text(encoding="utf-8") == before
+
+
+def test_rollback_on_fail_keeps_files_when_tests_pass(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    write_workspace_test(tmp_path)
+    out_dir = tmp_path / "out"
+    triage_factory, propose_factory = factories()
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--out-dir",
+            str(out_dir.resolve()),
+            "--allow-write",
+            "notes.py",
+            "--apply",
+            "--pytest",
+            "--rollback-on-fail",
+        ],
+        triage_factory=triage_factory,
+        propose_factory=propose_factory,
+    )
+    summary = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert summary["tests_passed"] is True
+    assert summary["rolled_back"] is False
+    assert not (out_dir / "rollback.json").exists()
+    assert "strip" not in notes.read_text(encoding="utf-8")

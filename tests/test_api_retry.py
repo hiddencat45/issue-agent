@@ -38,3 +38,53 @@ def test_does_not_retry_value_error():
 def test_stream_read_error_is_retryable():
     assert is_retryable(RuntimeError("stream_read_error")) is True
     assert is_retryable(ValueError("报告不是合法 JSON")) is False
+
+
+class FakeStatusError(Exception):
+    def __init__(self, message, status_code):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def test_http_520_is_retryable():
+    assert is_retryable(FakeStatusError("cloudflare", 520)) is True
+    assert is_retryable(FakeStatusError("overloaded", 200)) is True
+    assert is_retryable(FakeStatusError("service_unavailable", None)) is True
+    assert is_retryable(FakeStatusError("server_error", 500)) is True
+
+
+def test_client_errors_are_not_retryable():
+    assert is_retryable(FakeStatusError("bad request", 400)) is False
+    assert is_retryable(FakeStatusError("unauthorized", 401)) is False
+    assert is_retryable(ValueError("not a patch")) is False
+
+
+def test_retries_internal_server_error_once():
+    class InternalServerError(Exception):
+        pass
+
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise InternalServerError("server_error")
+        return "ok"
+
+    assert call_with_retry(fn, attempts=2, delay_seconds=0) == "ok"
+    assert calls["n"] == 2
+
+
+def test_does_not_retry_after_second_520():
+    class Boom(Exception):
+        status_code = 520
+
+    def fn():
+        raise Boom("cf 520")
+
+    try:
+        call_with_retry(fn, attempts=2, delay_seconds=0)
+    except Boom:
+        pass
+    else:
+        raise AssertionError("expected Boom")

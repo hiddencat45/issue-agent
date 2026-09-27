@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 
-from app.repair_apply import apply_repair_patch
+from app.repair_apply import apply_repair_patch, restore_files
 from app.repair_schema import RepairPatchError
 from app.run_pytest import run_pytest
 from app.trace import write_trace
@@ -28,6 +28,11 @@ def parse_args(argv):
         "--trace-out",
         required=False,
         help="可选，将本次预演或写入结果写入运行记录",
+    )
+    parser.add_argument(
+        "--rollback-on-fail",
+        action="store_true",
+        help="pytest 失败后，把本轮写入的文件恢复成写入前；必须同时提供 --pytest",
     )
     parser.add_argument(
         "--pytest",
@@ -66,17 +71,31 @@ def main(argv=None):
         args = parse_args(sys.argv[1:] if argv is None else argv)
         if not args.allow_write:
             raise ValueError("至少提供一个 --allow-write")
+        if args.rollback_on_fail and not args.pytest:
+            raise ValueError("使用 --rollback-on-fail 时必须同时提供 --pytest")
         if args.pytest and not args.apply:
             raise ValueError("使用 --pytest 时必须同时提供 --apply")
 
         workspace = require_workspace(args.workspace)
         patch = load_patch(args.patch_file)
+        originals = {}
         result = apply_repair_patch(
             workspace,
             patch,
             allowed_paths=args.allow_write,
             dry_run=not args.apply,
+            originals_out=originals if args.apply else None,
         )
+        if args.pytest:
+            if not result.get("ok") or not result.get("applied"):
+                raise ValueError(result.get("error") or "写入未成功，未运行 pytest")
+            pytest_result = run_pytest(workspace)
+            result = dict(result)
+            result["pytest"] = pytest_result
+            if args.rollback_on_fail and not pytest_result.get("passed"):
+                rollback_result = restore_files(workspace, originals)
+                result["rollback"] = rollback_result
+                result["rolled_back"] = bool(rollback_result.get("ok"))
         if args.trace_out:
             write_trace(
                 args.trace_out,
@@ -85,12 +104,6 @@ def main(argv=None):
                 events=[],
                 output=result,
             )
-        if args.pytest:
-            if not result.get("ok") or not result.get("applied"):
-                raise ValueError(result.get("error") or "写入未成功，未运行 pytest")
-            pytest_result = run_pytest(workspace)
-            result = dict(result)
-            result["pytest"] = pytest_result
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result.get("pytest") is not None and not result["pytest"].get("passed"):
             return 1

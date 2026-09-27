@@ -13,6 +13,7 @@ from app.triage_prompts import TRIAGE_INSTRUCTIONS, issue_user_message
 from app.triage_schema import TriageReportError, parse_triage_report
 from app.triage_tools import TOOLS, execute_tool
 from app.trace import TraceRecorder, write_trace
+from app.github_issue import GitHubHTTPError, add_issue_source_args, load_issue_text_from_args
 from app.tools.repository import RepositoryTools
 
 
@@ -22,7 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="只读 Issue 分诊")
     parser.add_argument("--workspace", required=True, help="目标仓库的绝对路径")
-    parser.add_argument("--issue-file", required=True, help="包含 issue 全文的文件")
+    add_issue_source_args(parser)
     parser.add_argument("--out", required=False, help="可选，将报告写入该文件")
     parser.add_argument(
         "--trace-out",
@@ -150,7 +151,7 @@ def main(argv=None, *, runner_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
         workspace = require_workspace(args.workspace)
-        issue_text = load_issue_text(args.issue_file)
+        issue_text = load_issue_text_from_args(args)
         recorder = TraceRecorder()
         factory = runner_factory or (
             lambda item: default_runner_factory(item, recorder=recorder)
@@ -167,7 +168,7 @@ def main(argv=None, *, runner_factory=None):
         emit_report(report, args.out)
         return 0
 
-    except (ValueError, TriageReportError, FileNotFoundError, OSError, KeyError, RuntimeError) as exc:
+    except (ValueError, GitHubHTTPError, TriageReportError, FileNotFoundError, OSError, KeyError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

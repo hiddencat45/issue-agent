@@ -220,3 +220,57 @@ def test_trace_out_writes_record(tmp_path, capsys):
     assert record["output"] == VALID_PATCH
     assert "format_note" in record["issue_text"]
     assert record["events"] == []
+
+
+def test_pytest_file_is_read_only_context(tmp_path, capsys):
+    issue = write_issue(tmp_path)
+    notes = write_notes(tmp_path)
+    before = notes.read_text(encoding="utf-8")
+    pytest_file = tmp_path / "pytest.json"
+    pytest_file.write_text(
+        json.dumps({
+            "passed": False,
+            "returncode": 1,
+            "output": "FAILED test_notes.py::test_keeps_spaces",
+        }),
+        encoding="utf-8",
+    )
+    seen = {}
+
+    def factory(workspace):
+        def runner(issue_text):
+            seen["issue_text"] = issue_text
+            return VALID_PATCH
+        return runner
+
+    code = main(
+        [
+            "--workspace",
+            str(tmp_path.resolve()),
+            "--issue-file",
+            str(issue),
+            "--pytest-file",
+            str(pytest_file),
+            "--out",
+            str(tmp_path / "next-patch.json"),
+        ],
+        runner_factory=factory,
+    )
+    printed = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert printed == VALID_PATCH
+    assert "FAILED test_notes.py::test_keeps_spaces" in seen["issue_text"]
+    assert notes.read_text(encoding="utf-8") == before
+
+
+def test_missing_pytest_file_exits_nonzero(tmp_path):
+    issue = write_issue(tmp_path)
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--issue-file",
+        str(issue),
+        "--pytest-file",
+        str(tmp_path / "missing.json"),
+    ])
+    assert code != 0

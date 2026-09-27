@@ -5,7 +5,8 @@ from pathlib import Path
 
 from app import propose
 from app import triage
-from app.repair_apply import apply_repair_patch
+from app.github_issue import GitHubHTTPError, add_issue_source_args, load_issue_text_from_args
+from app.repair_apply import apply_repair_patch, restore_files
 from app.repair_schema import RepairPatchError
 from app.run_pytest import run_pytest
 from app.trace import TraceRecorder, write_trace
@@ -18,7 +19,7 @@ def parse_args(argv):
         description="开发者工作流：分诊 → 提案 → 预演；加 --apply 才写入"
     )
     parser.add_argument("--workspace", required=True, help="目标仓库的绝对路径")
-    parser.add_argument("--issue-file", required=True, help="包含 issue 全文的文件")
+    add_issue_source_args(parser)
     parser.add_argument("--out-dir", required=True, help="报告、补丁和记录的输出目录")
     parser.add_argument(
         "--allow-write",
@@ -30,6 +31,11 @@ def parse_args(argv):
         "--apply",
         action="store_true",
         help="预演通过后真正写入；省略时不改目标仓库",
+    )
+    parser.add_argument(
+        "--rollback-on-fail",
+        action="store_true",
+        help="pytest 失败后，把本轮写入的文件恢复成写入前；必须同时提供 --pytest",
     )
     parser.add_argument(
         "--pytest",
@@ -68,6 +74,7 @@ def run_workflow(
     allow_write,
     apply,
     run_tests=False,
+    rollback_on_fail=False,
 ):
     report = make_triage(workspace)(issue_text)
     _write_json(out_dir / "report.json", report)
@@ -103,11 +110,13 @@ def run_workflow(
     if apply:
         if not allow_write:
             raise ValueError("使用 --apply 时至少提供一个 --allow-write")
+        originals = {}
         apply_result = apply_repair_patch(
             workspace,
             patch,
             allowed_paths=allow_write,
             dry_run=False,
+            originals_out=originals,
         )
         _write_json(out_dir / "apply.json", apply_result)
         write_trace(
@@ -128,6 +137,17 @@ def run_workflow(
         pytest_result = run_pytest(workspace)
         _write_json(out_dir / "pytest.json", pytest_result)
         tests_passed = bool(pytest_result.get("passed"))
+        pytest_returncode = pytest_result.get("returncode")
+
+    rolled_back = False
+    rollback_result = None
+    if rollback_on_fail:
+        if not run_tests:
+            raise ValueError("使用 --rollback-on-fail 时必须同时提供 --pytest")
+        if applied and tests_passed is False:
+            rollback_result = restore_files(workspace, originals)
+            _write_json(out_dir / "rollback.json", rollback_result)
+            rolled_back = bool(rollback_result.get("ok"))
 
     summary = {
         "ok": True if tests_passed is None else tests_passed,
@@ -139,6 +159,11 @@ def run_workflow(
     if tests_passed is not None:
         summary["pytest"] = "pytest.json"
         summary["tests_passed"] = tests_passed
+        summary["pytest_returncode"] = pytest_returncode
+    if rollback_on_fail:
+        summary["rolled_back"] = rolled_back
+        if rollback_result is not None:
+            summary["rollback"] = "rollback.json"
     _write_json(out_dir / "summary.json", summary)
     return summary
 
@@ -146,10 +171,12 @@ def run_workflow(
 def main(argv=None, *, triage_factory=None, propose_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
+        if args.rollback_on_fail and not args.pytest:
+            raise ValueError("使用 --rollback-on-fail 时必须同时提供 --pytest")
         if args.pytest and not args.apply:
             raise ValueError("使用 --pytest 时必须同时提供 --apply")
         workspace = triage.require_workspace(args.workspace)
-        issue_text = triage.load_issue_text(args.issue_file)
+        issue_text = load_issue_text_from_args(args)
         out_dir = require_out_dir(args.out_dir)
 
         triage_recorder = TraceRecorder()
@@ -180,12 +207,13 @@ def main(argv=None, *, triage_factory=None, propose_factory=None):
             allow_write=args.allow_write,
             apply=args.apply,
             run_tests=args.pytest,
+            rollback_on_fail=args.rollback_on_fail,
         )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0 if summary.get("ok") else 1
 
     except (
-        ValueError,
+        ValueError, GitHubHTTPError,
         TriageReportError,
         RepairPatchError,
         TraceError,

@@ -4,7 +4,31 @@ from pathlib import Path
 
 class RepositoryTools:
     # 第一版只读取明确允许的文本类型。
-    ALLOWED_SUFFIXES = {".py", ".md", ".toml", ".txt"}
+    ALLOWED_SUFFIXES = {
+        ".py",
+        ".md",
+        ".toml",
+        ".txt",
+        ".json",
+        ".yml",
+        ".yaml",
+        ".ini",
+        ".cfg",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".rs",
+        ".go",
+        ".java",
+        ".c",
+        ".h",
+        ".cpp",
+        ".html",
+        ".css",
+        ".sh",
+        ".ps1",
+    }
 
     EXCLUDED_DIRS = {
         ".git",

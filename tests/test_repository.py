@@ -111,3 +111,17 @@ def test_invalid_line_range(tools):
     )
 
     assert result["ok"] is False
+
+
+def test_allows_json_and_rejects_png(tools, tmp_path):
+    (tmp_path / "config.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (tmp_path / "logo.png").write_bytes(b"\x89PNG\r\n")
+    listed = tools.list_files()
+    assert listed["ok"] is True
+    assert "config.json" in listed["files"]
+    assert "logo.png" not in listed["files"]
+    read_json = tools.read_file("config.json")
+    assert read_json["ok"] is True
+    assert '{"ok": true}' in read_json["lines"][0]["text"]
+    read_png = tools.read_file("logo.png")
+    assert read_png["ok"] is False

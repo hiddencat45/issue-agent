@@ -10,11 +10,17 @@ from app.agent import run_agent
 from app import model_client
 from app.api_retry import call_with_retry
 from app.repair_apply import apply_repair_patch
-from app.repair_prompts import REPAIR_PROPOSE_INSTRUCTIONS, issue_user_message
+from app.repair_prompts import (
+    REPAIR_PROPOSE_INSTRUCTIONS,
+    format_pytest_feedback,
+    issue_user_message,
+)
+from app.run_pytest import load_pytest_result
 from app.repair_schema import RepairPatchError, parse_repair_patch, patch_paths
 from app.trace import TraceRecorder, write_trace
 from app.triage_tools import TOOLS, execute_tool
 from app.tools.repository import RepositoryTools
+from app.github_issue import GitHubHTTPError, add_issue_source_args, load_issue_text_from_args
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -23,12 +29,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="只读提出受控修复补丁")
     parser.add_argument("--workspace", required=True, help="目标仓库的绝对路径")
-    parser.add_argument("--issue-file", required=True, help="包含 issue 全文的文件")
+    add_issue_source_args(parser)
     parser.add_argument("--out", required=False, help="可选，将补丁写入该文件")
     parser.add_argument(
         "--verify",
         action="store_true",
         help="对提案做一次预演，确认 old_text 能对上；绝不写入",
+    )
+    parser.add_argument(
+        "--pytest-file",
+        required=False,
+        help="可选：上一次 pytest.json，作为只读上下文再提一版补丁",
     )
     parser.add_argument(
         "--trace-out",
@@ -166,7 +177,13 @@ def main(argv=None, *, runner_factory=None):
     try:
         args = parse_args(sys.argv[1:] if argv is None else argv)
         workspace = require_workspace(args.workspace)
-        issue_text = load_issue_text(args.issue_file)
+        issue_text = load_issue_text_from_args(args)
+        if args.pytest_file:
+            issue_text = (
+                issue_text
+                + "\n\n"
+                + format_pytest_feedback(load_pytest_result(args.pytest_file))
+            )
         recorder = TraceRecorder()
         factory = runner_factory or (
             lambda item: default_runner_factory(item, recorder=recorder)
@@ -185,7 +202,7 @@ def main(argv=None, *, runner_factory=None):
         emit_patch(patch, args.out)
         return 0
 
-    except (ValueError, RepairPatchError, FileNotFoundError, OSError, KeyError, RuntimeError) as exc:
+    except (ValueError, GitHubHTTPError, RepairPatchError, FileNotFoundError, OSError, KeyError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

@@ -26,3 +26,20 @@ def test_issue_user_message_includes_raw_issue():
     message = issue_user_message(issue)
     assert issue in message
     assert "不要修改仓库" in message
+
+
+def test_instructions_mention_pytest_feedback():
+    assert "pytest" in REPAIR_PROPOSE_INSTRUCTIONS
+
+
+def test_issue_user_message_appends_pytest_output():
+    issue = "keep spaces"
+    feedback = {
+        "passed": False,
+        "returncode": 1,
+        "output": "assert format_note(' a ') == ' a '",
+    }
+    message = issue_user_message(issue, pytest_result=feedback)
+    assert issue in message
+    assert "assert format_note" in message
+    assert "returncode: 1" in message

@@ -143,3 +143,68 @@ def test_repair_pytest_after_apply(tmp_path, capsys):
     assert result["applied"] is True
     assert result["pytest"]["passed"] is True
     assert "strip" not in (tmp_path / "notes.py").read_text(encoding="utf-8")
+
+
+def test_repair_pytest_failure_keeps_output(tmp_path, capsys):
+    patch = write_workspace(tmp_path)
+    (tmp_path / "test_sample.py").write_text("def test_bad():\n    assert False\n", encoding="utf-8")
+    before = (tmp_path / "notes.py").read_text(encoding="utf-8")
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--patch-file",
+        str(patch),
+        "--allow-write",
+        "notes.py",
+        "--apply",
+        "--pytest",
+    ])
+    result = json.loads(capsys.readouterr().out)
+    assert code != 0
+    assert result["applied"] is True
+    assert result["pytest"]["passed"] is False
+    assert result["pytest"]["output"]
+    assert "strip" not in (tmp_path / "notes.py").read_text(encoding="utf-8")
+    assert before != (tmp_path / "notes.py").read_text(encoding="utf-8")
+
+
+def test_repair_rollback_on_fail_restores_files(tmp_path, capsys):
+    patch = write_workspace(tmp_path)
+    before = (tmp_path / "notes.py").read_text(encoding="utf-8")
+    (tmp_path / "test_sample.py").write_text("def test_bad():\n    assert False\n", encoding="utf-8")
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--patch-file",
+        str(patch),
+        "--allow-write",
+        "notes.py",
+        "--apply",
+        "--pytest",
+        "--rollback-on-fail",
+    ])
+    result = json.loads(capsys.readouterr().out)
+    assert code != 0
+    assert result["applied"] is True
+    assert result["pytest"]["passed"] is False
+    assert result["rolled_back"] is True
+    assert result["rollback"]["ok"] is True
+    assert (tmp_path / "notes.py").read_text(encoding="utf-8") == before
+
+
+def test_repair_rollback_requires_pytest(tmp_path, capsys):
+    patch = write_workspace(tmp_path)
+    code = main([
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--patch-file",
+        str(patch),
+        "--allow-write",
+        "notes.py",
+        "--apply",
+        "--rollback-on-fail",
+    ])
+    err = capsys.readouterr().err
+    assert code != 0
+    assert "--pytest" in err
+    assert "strip" in (tmp_path / "notes.py").read_text(encoding="utf-8")

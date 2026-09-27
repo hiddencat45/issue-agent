@@ -10,6 +10,7 @@ REPAIR_PROPOSE_INSTRUCTIONS = """你是代码仓库的只读补丁提案助手�
 4. 每一处 old_text 应包含足够上下文，使其在对应文件中只出现一次。
 5. 可以改同一文件的多处，也可以改多个已有文件；不要改无关文件，不要新建或删除文件。
 6. 最终回答必须是且只是一个 JSON 对象，不要 Markdown，不要代码围栏，不要额外说明。
+7. 如果用户消息里带了 pytest 输出，把它当作只读证据来修正补丁；仍然不要写文件、不要执行命令、不要声称已经修好。
 
 可用工具：
 - list_files：列出目录中允许读取的文件。必须提供 path，仓库根用 "."。
@@ -33,9 +34,34 @@ REPAIR_PROPOSE_INSTRUCTIONS = """你是代码仓库的只读补丁提案助手�
 """
 
 
-def issue_user_message(issue_text):
+MAX_PYTEST_FEEDBACK_CHARS = 8_000
+
+
+def format_pytest_feedback(pytest_result):
+    passed = pytest_result.get("passed")
+    returncode = pytest_result.get("returncode")
+    output = pytest_result.get("output") or ""
+    if not output:
+        stdout = pytest_result.get("stdout") or ""
+        stderr = pytest_result.get("stderr") or ""
+        output = "\n".join(part for part in (stdout, stderr) if part)
+    if len(output) > MAX_PYTEST_FEEDBACK_CHARS:
+        output = output[:MAX_PYTEST_FEEDBACK_CHARS] + "\n...[truncated]"
     return (
+        "下面是最近一次 python -m pytest -q 的结果，只作只读上下文。"
+        "不要因此直接改仓库，只给出下一版补丁 JSON。\n"
+        f"passed: {passed}\n"
+        f"returncode: {returncode}\n"
+        f"{output}"
+    )
+
+
+def issue_user_message(issue_text, pytest_result=None):
+    message = (
         "请对下面的 issue 提出一份只读补丁 JSON。"
         "不要修改仓库，只输出提案。\n\n"
         f"{issue_text}"
     )
+    if pytest_result is None:
+        return message
+    return message + "\n\n" + format_pytest_feedback(pytest_result)

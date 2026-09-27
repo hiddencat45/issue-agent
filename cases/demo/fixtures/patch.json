@@ -1,0 +1,6 @@
+{
+  "path": "notes.py",
+  "old_text": "    return text.strip()\n",
+  "new_text": "    return text\n",
+  "rationale": "按 issue 要求保留首尾空格，去掉 strip。"
+}
