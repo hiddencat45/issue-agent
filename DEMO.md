@@ -1,6 +1,6 @@
 # 5 分钟演示稿
 
-给面试官看的稳定路径：**不调模型、不改仓库、不发 GitHub 评论、不开 PR**。
+给面试官看的稳定路径：**不调模型、不改仓库、不发 GitHub 评论、不开真实 PR**。
 
 ## 先跑测试
 
@@ -27,6 +27,7 @@ python -m app.demo_loop --out-dir "D:\path\to\out"
 3. `patch.json` / `verify.json`：预演去掉 `strip`，原文对得上，**没有写入**
 4. `comment.md`：GitHub 评论预览，底部写明需人工确认
 5. `comment-preview.json`：`posted` 为 false
+6. `pr.md` / `pr-preview.json`：PR 预览，`opened` 为 false
 
 目标小仓库在 `cases/demo/workspace`。演示结束后 `notes.py` 里仍应有 `strip()`。
 

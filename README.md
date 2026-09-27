@@ -18,7 +18,7 @@ python -m pip install -r requirements.txt
 
 `--workspace` 和 `--out-dir` 必须是绝对路径。
 
-可选环境变量 `GITHUB_TOKEN`（或 `GH_TOKEN`），用于只读拉取 GitHub issue。公开 issue 可以留空。不要把 token 写进仓库或贴到聊天里。发评论必须显式 `--post-comment`；默认只预演。仍不会开 PR。
+可选环境变量 `GITHUB_TOKEN`（或 `GH_TOKEN`），用于只读拉取 GitHub issue。公开 issue 可以留空。不要把 token 写进仓库或贴到聊天里。发评论必须显式 `--post-comment`；开 PR 必须显式 `--open-pr`。默认只预演。不会创建分支或 git push。
 
 
 
@@ -61,7 +61,11 @@ python -m app.issue --workspace "D:\path\to\repo" --github-issue "owner/repo#123
 python -m app.github_comment --github-issue "owner/repo#123" --report-file "D:\path\to\out\report.json"
 python -m app.github_comment --github-issue "owner/repo#123" --comment-file comment.md
 python -m app.github_comment --github-issue "owner/repo#123" --report-file "D:\path\to\out\report.json" --post-comment
+python -m app.github_pr --github-issue "owner/repo#123" --report-file "D:\path\to\out\report.json" --patch-file "D:\path\to\out\patch.json" --head "fix-branch"
+python -m app.github_pr --github-issue "owner/repo#123" --report-file "D:\path\to\out\report.json" --patch-file "D:\path\to\out\patch.json" --head "fix-branch" --open-pr
 ```
+
+开 PR 默认只预演，不会创建分支、不会 git push、不会写仓库。`--open-pr` 才会调用 GitHub API；需要 `GITHUB_TOKEN`，并且 **head 分支必须已经在 GitHub 上存在**。
 
 ## 推荐：一条工作流
 
@@ -119,6 +123,7 @@ python -m app.trace_replay --workspace "D:\path\to\repo" --trace-file propose-tr
 python -m app.github_issue --github-issue "owner/repo#123" --out issue.txt
 python -m app.github_comment --github-issue "owner/repo#123" --report-file report.json
 python -m app.github_comment --github-issue "owner/repo#123" --report-file report.json --post-comment
+python -m app.github_pr --github-issue "owner/repo#123" --report-file report.json --patch-file patch.json --head "fix-branch"
 python -m app.demo_loop --out-dir "D:\path\to\out"
 python -m app.demo_loop --out-dir "D:\path\to\out" --live
 ```

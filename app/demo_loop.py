@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 
 from app.github_comment import format_comment_from_report, post_github_comment
-from app.github_issue import GitHubHTTPError, fetch_github_issue
+from app.github_pr import create_github_pr, format_pr_from_report
+from app.github_issue import GitHubHTTPError, fetch_github_issue, parse_github_issue_ref
 from app.issue import require_out_dir, run_workflow
 from app.propose import verify_patch
 from app.repair_schema import RepairPatchError, validate_repair_patch
@@ -84,6 +85,23 @@ def write_comment_preview(out_dir, report, github_ref):
     return comment, preview
 
 
+def write_pr_preview(out_dir, report, patch, github_ref):
+    _owner, _repo, number = parse_github_issue_ref(github_ref)
+    title, body = format_pr_from_report(report, patch, issue_number=number)
+    (out_dir / "pr.md").write_text("# " + title + "\n\n" + body, encoding="utf-8")
+    preview = create_github_pr(
+        github_ref,
+        title,
+        body,
+        head="issue-agent",
+        dry_run=True,
+    )
+    if preview.get("opened") or not preview.get("dry_run"):
+        raise RuntimeError("演示不得创建 GitHub PR")
+    _write_json(out_dir / "pr-preview.json", preview)
+    return preview
+
+
 def write_walkthrough(out_dir, summary, issue_text):
     live = "是（调用模型）" if summary.get("live") else "否（离线夹具，不调模型）"
     source = summary.get("issue_source") or "file"
@@ -111,10 +129,13 @@ def write_walkthrough(out_dir, summary, issue_text):
         "- `verify.json`：补丁预演（对原文，不写入）",
         "- `comment.md`：将要发到 GitHub 的评论预览",
         "- `comment-preview.json`：确认 posted=false",
+        "- `pr.md`：将要开的 PR 预览",
+        "- `pr-preview.json`：确认 opened=false",
         "",
         "下一步若要真正改代码，请用 `python -m app.issue --allow-write ... --apply`。",
         "下一步若要真正发评论，请用 `python -m app.github_comment --post-comment`。",
-        "本命令不会开 PR。",
+        "下一步若要真正开 PR，请先自行推送 head 分支，再用 `python -m app.github_pr --open-pr`。",
+        "本命令不会开 PR、不会 git push。",
         "",
     ])
     (out_dir / "WALKTHROUGH.md").write_text(text, encoding="utf-8")
@@ -140,18 +161,23 @@ def load_offline_fixtures(fixture_dir):
 def finish_summary(out_dir, summary, *, live, issue_text, github_ref, issue_source):
     report = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
     write_comment_preview(out_dir, report, github_ref)
+    patch = json.loads((out_dir / "patch.json").read_text(encoding="utf-8"))
+    write_pr_preview(out_dir, report, patch, github_ref)
     (out_dir / "issue.txt").write_text(issue_text, encoding="utf-8")
     summary = dict(summary)
     summary["ok"] = True
     summary["live"] = live
     summary["applied"] = False
     summary["posted"] = False
+    summary["opened"] = False
     summary["dry_run"] = True
     summary["issue_source"] = issue_source
     summary["github_issue"] = github_ref
     summary["issue"] = "issue.txt"
     summary["comment"] = "comment.md"
     summary["comment_preview"] = "comment-preview.json"
+    summary["pr"] = "pr.md"
+    summary["pr_preview"] = "pr-preview.json"
     summary["walkthrough"] = "WALKTHROUGH.md"
     _write_json(out_dir / "summary.json", summary)
     write_walkthrough(out_dir, summary, issue_text)

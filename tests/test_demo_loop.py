@@ -43,6 +43,7 @@ def test_offline_demo_does_not_write_or_post(tmp_path, capsys):
     assert summary["live"] is False
     assert summary["applied"] is False
     assert summary["posted"] is False
+    assert summary["opened"] is False
     assert summary["dry_run"] is True
     assert summary["workspace_unchanged"] is True
     assert summary["issue_source"] == "file"
@@ -65,6 +66,9 @@ def test_offline_demo_does_not_write_or_post(tmp_path, capsys):
     assert "不调模型" in walkthrough
     assert "否" in walkthrough
     assert (out_dir / "issue.txt").is_file()
+    assert (out_dir / "pr.md").is_file()
+    preview_pr = json.loads((out_dir / "pr-preview.json").read_text(encoding="utf-8"))
+    assert preview_pr["opened"] is False
 
 
 def test_offline_rejects_injected_factories(tmp_path, capsys):
