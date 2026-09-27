@@ -11,7 +11,7 @@ from app import model_client
 from app.api_retry import call_with_retry
 from app.triage_prompts import TRIAGE_INSTRUCTIONS, issue_user_message
 from app.triage_schema import TriageReportError, parse_triage_report
-from app.triage_tools import TOOLS, execute_tool
+from app.triage_tools import TOOLS, execute_tool, make_bound_execute
 from app.trace import TraceRecorder, write_trace
 from app.github_issue import GitHubHTTPError, add_issue_source_args, load_issue_text_from_args
 from app.tools.repository import RepositoryTools
@@ -86,10 +86,7 @@ def make_request_response(client):
 
 
 def make_execute_tool(repository):
-    def bound(call):
-        return execute_tool(call, repository)
-
-    return bound
+    return make_bound_execute(repository)
 
 
 def collect_report(

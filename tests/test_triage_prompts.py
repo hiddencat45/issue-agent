@@ -37,3 +37,16 @@ def test_instructions_require_one_quote_per_line():
     assert "一条证据只对应文件中的一行" in text
     assert "不得包含换行" in text
     assert "拆成多条 evidence" in text
+
+
+def test_instructions_cap_search_and_require_read():
+    text = TRIAGE_INSTRUCTIONS
+    assert "search_code 本轮最多 2 次" in text
+    assert "不能把 search_code 的匹配行直接当 quote" in text
+    assert "至少留 2 次给 read_file" in text
+
+
+def test_user_message_asks_to_read_after_search():
+    message = issue_user_message("x")
+    assert "read_file" in message
+    assert "先搜索定位" in message

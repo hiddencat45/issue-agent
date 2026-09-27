@@ -32,6 +32,8 @@ TOOLS = [
         "name": "search_code",
         "description": (
             "在目标仓库中按字面文本搜索文件内容，忽略大小写，不支持正则。"
+            "只用于定位候选文件；本轮最多调用 2 次。"
+            "匹配行不能当作 evidence.quote，必须再对文件调用 read_file。"
             "query 是搜索关键词。"
             "path 必须是相对仓库根的目录路径，根目录使用 '.'。"
             "limit 可选，默认 30，范围 1 到 100。"
@@ -109,6 +111,28 @@ _SPECS = {
 
 def _error(message):
     return {"ok": False, "error": message}
+
+
+MAX_SEARCH_CODE_CALLS = 2
+
+
+def make_bound_execute(repository):
+    """绑定仓库，并限制本轮 search_code 次数，迫使后续改为 read_file。"""
+    remaining = {"search": MAX_SEARCH_CODE_CALLS}
+
+    def bound(call):
+        name = getattr(call, "name", None)
+        if name == "search_code" and remaining["search"] <= 0:
+            return _error(
+                "search_code 本轮最多 2 次。请对候选文件调用 read_file，"
+                "evidence.quote 必须来自读取的原文。"
+            )
+        result = execute_tool(call, repository)
+        if name == "search_code" and isinstance(result, dict) and result.get("ok"):
+            remaining["search"] -= 1
+        return result
+
+    return bound
 
 
 def execute_tool(call, repository):

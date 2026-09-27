@@ -164,3 +164,28 @@ def test_underlying_ok_false_is_passed_through():
 
     repository.read_file.assert_called_once_with(path="missing.py")
     assert result is expected
+
+
+from app.triage_tools import make_bound_execute
+
+
+def test_search_code_is_capped_then_read_file_still_works():
+    repository = Mock()
+    repository.search_code.return_value = {"ok": True, "matches": []}
+    repository.read_file.return_value = {"ok": True, "lines": []}
+    bound = make_bound_execute(repository)
+
+    first = bound(SimpleNamespace(name="search_code", arguments='{"query": "a", "path": "."}'))
+    second = bound(SimpleNamespace(name="search_code", arguments='{"query": "b", "path": "."}'))
+    third = bound(SimpleNamespace(name="search_code", arguments='{"query": "c", "path": "."}'))
+    read = bound(SimpleNamespace(name="read_file", arguments='{"path": "notes.py"}'))
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert third == {
+        "ok": False,
+        "error": "search_code 本轮最多 2 次。请对候选文件调用 read_file，evidence.quote 必须来自读取的原文。",
+    }
+    assert read["ok"] is True
+    assert repository.search_code.call_count == 2
+    repository.read_file.assert_called_once()

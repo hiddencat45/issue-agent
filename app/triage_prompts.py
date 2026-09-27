@@ -12,6 +12,9 @@
 7. 不确定必须写入 uncertainties，不得用“可能/大概”代替结论。
 8. 未核实的事实不得写成已确认。
 9. 最终回答必须是且只是一个 JSON 对象，不要 Markdown，不要代码围栏，不要额外说明。
+10. search_code 本轮最多 2 次。定位到候选文件后必须调用 read_file。
+11. evidence.quote 只能来自 read_file 返回的原文，不能把 search_code 的匹配行直接当 quote。
+12. 工具一共 6 次，至少留 2 次给 read_file。不要把次数用尽在搜索上。
 
 可用工具：
 - list_files：列出目录中允许读取的文件。必须提供 path，仓库根用 "."。
@@ -36,6 +39,6 @@
 def issue_user_message(issue_text):
     return (
         "请对下面的 issue 做只读分诊，并只输出四格 JSON 报告。"
-        "每条 evidence.quote 只能是单行原文。\n\n"
+        "先搜索定位，再 read_file 读取原文；每条 evidence.quote 只能是读到的单行原文。\n\n"
         f"{issue_text}"
     )
